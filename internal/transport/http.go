@@ -27,7 +27,7 @@ func (h *Handler) chat(w http.ResponseWriter, r *http.Request) {
 
 	resp, _ := h.svc.Ask(r.Context(), req)
 
-	json.NewEncoder(w).Encode(map[string]string{
-		"response": resp,
-	})
+	json.NewEncoder(w).Encode(map[string]interface{}{
+    "response": resp,
+})
 }
