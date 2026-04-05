@@ -2,7 +2,7 @@ Here’s a **clean, production-style README** you can directly copy into your re
 
 ---
 
-# 🧠 rag-platform-go
+# 🧠 rag-infra-go
 
 **Production-oriented Agentic RAG backend implemented in Go**
 
@@ -12,7 +12,7 @@ A modular, extensible Retrieval-Augmented Generation (RAG) system designed with 
 
 ## 🚀 Overview
 
-`rag-platform-go` is not a demo project. It is a **backend system for building scalable AI applications** that combines:
+`rag-infra-go` is not a demo project. It is a **backend system for building scalable AI applications** that combines:
 
 * Retrieval (vector + structured)
 * LLM orchestration
@@ -91,7 +91,7 @@ User Query
 ## 📁 Project Structure
 
 ```
-rag-platform-go/
+rag-infra-go/
 ├── cmd/
 │   └── api/                # Application entrypoint
 │
@@ -255,8 +255,8 @@ data: token2
 ### 1. Clone the repo
 
 ```
-git clone https://github.com/yourname/rag-platform-go.git
-cd rag-platform-go
+git clone https://github.com/yourname/rag-infra-go.git
+cd rag-infra-go
 ```
 
 ### 2. Setup environment
