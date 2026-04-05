@@ -9,91 +9,74 @@ import (
 
 	"github.com/shanmeiliu/rag-infra-go/internal/chat"
 	"github.com/shanmeiliu/rag-infra-go/internal/db"
+	"github.com/shanmeiliu/rag-infra-go/internal/ingestion"
 	"github.com/shanmeiliu/rag-infra-go/internal/memory"
 	"github.com/shanmeiliu/rag-infra-go/internal/providers"
 	"github.com/shanmeiliu/rag-infra-go/internal/retrieval"
-	internalvector "github.com/shanmeiliu/rag-infra-go/internal/vectorstore"
 	"github.com/shanmeiliu/rag-infra-go/internal/rewrite"
 	"github.com/shanmeiliu/rag-infra-go/internal/transport"
-	pkgvector "github.com/shanmeiliu/rag-infra-go/pkg/vectorstore"
+	internalvector "github.com/shanmeiliu/rag-infra-go/internal/vectorstore"
 )
 
 func main() {
-	_ = godotenv.Load()
+	if err := godotenv.Load(); err != nil {
+		log.Println("No .env file found, using system environment variables")
+	}
 
 	ctx := context.Background()
 
-	cfg := db.ConfigFromEnv()
-	postgresDB, err := db.Open(ctx, cfg)
+	dbCfg := db.ConfigFromEnv()
+	postgresDB, err := db.Open(ctx, dbCfg)
 	if err != nil {
 		log.Fatalf("failed to open database: %v", err)
 	}
 	defer postgresDB.Close()
 
-	if err := db.EnsureSchema(ctx, postgresDB); err != nil {
-		log.Fatalf("failed to ensure schema: %v", err)
+	providerCfg := providers.LoadProviderConfig()
+
+	embedder, err := providers.NewEmbeddingClient(providerCfg)
+	if err != nil {
+		log.Fatalf("failed to create embedding client: %v", err)
 	}
 
-	embedder := providers.NewMockEmbeddingClient()
-	store := internalvector.NewPGVectorStore(postgresDB)
+	profile := providers.NewEmbeddingProfile(
+		embedder.ProviderName(),
+		embedder.ModelName(),
+		embedder.Dimension(),
+	)
 
-	if err := seedDemoData(ctx, embedder, store); err != nil {
-		log.Fatalf("failed to seed demo data: %v", err)
+	if err := db.EnsureBaseSchema(ctx, postgresDB); err != nil {
+		log.Fatalf("failed to ensure base schema: %v", err)
 	}
+
+	if err := db.EnsureEmbeddingTable(ctx, postgresDB, profile); err != nil {
+		log.Fatalf("failed to ensure embedding table: %v", err)
+	}
+
+	llmClient := providers.NewOpenAIClient()
+	store := internalvector.NewPGVectorStore(postgresDB, profile)
 
 	retriever := retrieval.NewPGVectorRetriever(embedder, store, 5)
 	rewriter := rewrite.NewSimpleRewriter()
-	mem := memory.NewInMemoryStore()
-	llmClient := providers.NewMockLLMClient()
+	memStore := memory.NewInMemoryStore()
+	ingestionSvc := ingestion.NewService(embedder, store)
 
-	service := chat.NewService(chat.Dependencies{
+	chatSvc := chat.NewService(chat.Dependencies{
 		Rewriter:  rewriter,
 		Retriever: retriever,
-		Memory:    mem,
+		Memory:    memStore,
 		LLM:       llmClient,
 	})
 
-	handler := transport.NewHTTPHandler(service)
+	handler := transport.NewHTTPHandler(chatSvc, ingestionSvc, store)
 
-	log.Println("Server running on :8080")
+	log.Printf("embedding provider: %s", profile.Provider)
+	log.Printf("embedding model: %s", profile.Model)
+	log.Printf("embedding dimension: %d", profile.Dimension)
+	log.Printf("embedding table: %s", profile.TableName())
+	log.Println("server running on :8080")
+
 	if err := http.ListenAndServe(":8080", handler.Routes()); err != nil {
-		log.Fatal(err)
+		log.Fatalf("server failed: %v", err)
 	}
-}
-
-func seedDemoData(
-	ctx context.Context,
-	embedder *providers.MockEmbeddingClient,
-	store *internalvector.PGVectorStore,
-) error {
-	chunks := []pkgvector.Chunk{
-		{
-			ChunkID:  "chunk-1",
-			DocID:    "doc-rag-basics",
-			Content:  "RAG stands for Retrieval-Augmented Generation. It retrieves relevant context before asking the language model to answer.",
-			Metadata: map[string]any{"topic": "rag"},
-		},
-		{
-			ChunkID:  "chunk-2",
-			DocID:    "doc-hybrid-retrieval",
-			Content:  "Hybrid retrieval combines lexical search and vector search to improve both precision and recall.",
-			Metadata: map[string]any{"topic": "retrieval"},
-		},
-		{
-			ChunkID:  "chunk-3",
-			DocID:    "doc-pgvector",
-			Content:  "pgvector enables vector similarity search directly inside PostgreSQL and supports operators such as cosine distance and L2 distance.",
-			Metadata: map[string]any{"topic": "pgvector"},
-		},
-	}
-
-	for i := range chunks {
-		emb, err := embedder.Embed(ctx, chunks[i].Content)
-		if err != nil {
-			return err
-		}
-		chunks[i].Embedding = emb
-	}
-
-	return store.Upsert(ctx, chunks)
 }

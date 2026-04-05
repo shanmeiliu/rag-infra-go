@@ -7,43 +7,50 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/shanmeiliu/rag-infra-go/pkg/vectorstore"
+	"github.com/shanmeiliu/rag-infra-go/internal/providers"
+	pkgvector "github.com/shanmeiliu/rag-infra-go/pkg/vectorstore"
 )
 
 type PGVectorStore struct {
-	db *sql.DB
+	db      *sql.DB
+	profile providers.EmbeddingProfile
 }
 
-func NewPGVectorStore(db *sql.DB) *PGVectorStore {
-	return &PGVectorStore{db: db}
+func NewPGVectorStore(db *sql.DB, profile providers.EmbeddingProfile) *PGVectorStore {
+	return &PGVectorStore{
+		db:      db,
+		profile: profile,
+	}
 }
 
-func (s *PGVectorStore) Upsert(ctx context.Context, chunks []vectorstore.Chunk) error {
+func (s *PGVectorStore) Upsert(ctx context.Context, chunks []pkgvector.Chunk) error {
 	for _, ch := range chunks {
-		metadataJSON, err := json.Marshal(ch.Metadata)
+		metaJSON, err := json.Marshal(ch.Metadata)
 		if err != nil {
 			return err
 		}
 
-		query := `
-INSERT INTO chunks (chunk_id, doc_id, content, metadata, embedding)
-VALUES ($1, $2, $3, $4::jsonb, $5::vector)
+		if _, err := s.db.ExecContext(ctx, `
+INSERT INTO chunks (chunk_id, doc_id, content, metadata)
+VALUES ($1, $2, $3, $4::jsonb)
 ON CONFLICT (chunk_id)
 DO UPDATE SET
+	doc_id = EXCLUDED.doc_id,
 	content = EXCLUDED.content,
-	metadata = EXCLUDED.metadata,
+	metadata = EXCLUDED.metadata;
+`, ch.ChunkID, ch.DocID, ch.Content, string(metaJSON)); err != nil {
+			return err
+		}
+
+		query := fmt.Sprintf(`
+INSERT INTO %s (chunk_id, embedding)
+VALUES ($1, $2::vector)
+ON CONFLICT (chunk_id)
+DO UPDATE SET
 	embedding = EXCLUDED.embedding;
-`
-		_, err = s.db.ExecContext(
-			ctx,
-			query,
-			ch.ChunkID,
-			ch.DocID,
-			ch.Content,
-			string(metadataJSON),
-			toVectorLiteral(ch.Embedding),
-		)
-		if err != nil {
+`, s.profile.TableName())
+
+		if _, err := s.db.ExecContext(ctx, query, ch.ChunkID, toVectorLiteral(ch.Embedding)); err != nil {
 			return err
 		}
 	}
@@ -51,42 +58,33 @@ DO UPDATE SET
 	return nil
 }
 
-func (s *PGVectorStore) Search(ctx context.Context, embedding []float32, topK int, filters map[string]any) ([]vectorstore.SearchResult, error) {
+func (s *PGVectorStore) Search(ctx context.Context, embedding []float32, topK int, filters map[string]any) ([]pkgvector.SearchResult, error) {
 	if topK <= 0 {
 		topK = 5
 	}
 
-	baseQuery := `
-SELECT chunk_id, doc_id, content, metadata, embedding <-> $1::vector AS score
-FROM chunks
-`
-	args := []any{toVectorLiteral(embedding)}
-	whereParts := make([]string, 0)
+	query := fmt.Sprintf(`
+SELECT
+	c.chunk_id,
+	c.doc_id,
+	c.content,
+	c.metadata,
+	e.embedding <-> $1::vector AS score
+FROM %s e
+JOIN chunks c ON c.chunk_id = e.chunk_id
+ORDER BY e.embedding <-> $1::vector
+LIMIT $2;
+`, s.profile.TableName())
 
-	if len(filters) > 0 {
-		for key, value := range filters {
-			args = append(args, fmt.Sprintf("%v", value))
-			whereParts = append(whereParts, fmt.Sprintf("metadata->>$%d = $%d", len(args), len(args)))
-			_ = key
-		}
-	}
-
-	if len(whereParts) > 0 {
-		baseQuery += " WHERE " + strings.Join(whereParts, " AND ")
-	}
-
-	args = append(args, topK)
-	baseQuery += fmt.Sprintf(" ORDER BY embedding <-> $1::vector LIMIT $%d", len(args))
-
-	rows, err := s.db.QueryContext(ctx, baseQuery, args...)
+	rows, err := s.db.QueryContext(ctx, query, toVectorLiteral(embedding), topK)
 	if err != nil {
 		return nil, err
 	}
 	defer rows.Close()
 
-	results := make([]vectorstore.SearchResult, 0)
+	var results []pkgvector.SearchResult
 	for rows.Next() {
-		var r vectorstore.SearchResult
+		var r pkgvector.SearchResult
 		var metadataBytes []byte
 
 		if err := rows.Scan(&r.ChunkID, &r.DocID, &r.Content, &metadataBytes, &r.Score); err != nil {
@@ -101,6 +99,12 @@ FROM chunks
 	}
 
 	return results, rows.Err()
+}
+
+func (s *PGVectorStore) DeleteAll(ctx context.Context) error {
+	query := fmt.Sprintf(`TRUNCATE TABLE %s;`, s.profile.TableName())
+	_, err := s.db.ExecContext(ctx, query)
+	return err
 }
 
 func toVectorLiteral(v []float32) string {
