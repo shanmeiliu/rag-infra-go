@@ -1,4 +1,4 @@
-module github.com/yourname/rag-infra-go
+module github.com/shanmeiliu/rag-infra-go
 
 go 1.24.0
 

@@ -5,8 +5,8 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/yourname/rag-infra-go/internal/memory"
-	"github.com/yourname/rag-infra-go/pkg/llm"
+	"github.com/shanmeiliu/rag-infra-go/internal/memory"
+	"github.com/shanmeiliu/rag-infra-go/pkg/llm"
 )
 
 type Rewriter interface {

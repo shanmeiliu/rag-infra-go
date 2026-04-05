@@ -89,8 +89,8 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/yourname/rag-infra-go/internal/memory"
-	"github.com/yourname/rag-infra-go/pkg/llm"
+	"github.com/shanmeiliu/rag-infra-go/internal/memory"
+	"github.com/shanmeiliu/rag-infra-go/pkg/llm"
 )
 
 type Rewriter interface {
@@ -256,7 +256,7 @@ package retrieval
 import (
 	"context"
 
-	"github.com/yourname/rag-infra-go/internal/chat"
+	"github.com/shanmeiliu/rag-infra-go/internal/chat"
 )
 
 type MockRetriever struct{}
@@ -360,7 +360,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/yourname/rag-infra-go/pkg/llm"
+	"github.com/shanmeiliu/rag-infra-go/pkg/llm"
 )
 
 type MockLLMClient struct{}
@@ -449,7 +449,7 @@ import (
 	"context"
 	"strings"
 
-	"github.com/yourname/rag-infra-go/internal/memory"
+	"github.com/shanmeiliu/rag-infra-go/internal/memory"
 )
 
 type SimpleRewriter struct{}
@@ -495,8 +495,8 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/yourname/rag-infra-go/internal/chat"
-	"github.com/yourname/rag-infra-go/internal/trace"
+	"github.com/shanmeiliu/rag-infra-go/internal/chat"
+	"github.com/shanmeiliu/rag-infra-go/internal/trace"
 )
 
 type HTTPHandler struct {
@@ -560,8 +560,8 @@ import (
 	"fmt"
 	"net/http"
 
-	"github.com/yourname/rag-infra-go/internal/chat"
-	"github.com/yourname/rag-infra-go/internal/trace"
+	"github.com/shanmeiliu/rag-infra-go/internal/chat"
+	"github.com/shanmeiliu/rag-infra-go/internal/trace"
 )
 
 func (h *HTTPHandler) handleStream(w http.ResponseWriter, r *http.Request) {
@@ -816,7 +816,7 @@ Production-oriented Agentic RAG backend implemented in Go.
 EOF
 
 cat > go.mod <<'EOF'
-module github.com/yourname/rag-infra-go
+module github.com/shanmeiliu/rag-infra-go
 
 go 1.24.0
 

@@ -5,7 +5,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/yourname/rag-infra-go/pkg/llm"
+	"github.com/shanmeiliu/rag-infra-go/pkg/llm"
 )
 
 type MockLLMClient struct{}

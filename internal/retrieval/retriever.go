@@ -3,7 +3,7 @@ package retrieval
 import (
 	"context"
 
-	"github.com/yourname/rag-infra-go/internal/chat"
+	"github.com/shanmeiliu/rag-infra-go/internal/chat"
 )
 
 type MockRetriever struct{}
