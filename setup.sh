@@ -16,13 +16,13 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/yourname/rag-infra-go/internal/chat"
-	"github.com/yourname/rag-infra-go/internal/db"
-	"github.com/yourname/rag-infra-go/internal/memory"
-	"github.com/yourname/rag-infra-go/internal/providers"
-	"github.com/yourname/rag-infra-go/internal/retrieval"
-	"github.com/yourname/rag-infra-go/internal/rewrite"
-	"github.com/yourname/rag-infra-go/internal/transport"
+	"github.com/shanmeiliu/rag-infra-go/internal/chat"
+	"github.com/shanmeiliu/rag-infra-go/internal/db"
+	"github.com/shanmeiliu/rag-infra-go/internal/memory"
+	"github.com/shanmeiliu/rag-infra-go/internal/providers"
+	"github.com/shanmeiliu/rag-infra-go/internal/retrieval"
+	"github.com/shanmeiliu/rag-infra-go/internal/rewrite"
+	"github.com/shanmeiliu/rag-infra-go/internal/transport"
 )
 
 func main() {
