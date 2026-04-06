@@ -13,11 +13,11 @@ import (
 )
 
 type HTTPSettings struct {
-	Timeout           time.Duration
-	MaxRetries        int
-	RetryBaseDelay    time.Duration
-	CircuitThreshold  int
-	CircuitCooldown   time.Duration
+	Timeout          time.Duration
+	MaxRetries       int
+	RetryBaseDelay   time.Duration
+	CircuitThreshold int
+	CircuitCooldown  time.Duration
 }
 
 func DefaultHTTPSettings() HTTPSettings {

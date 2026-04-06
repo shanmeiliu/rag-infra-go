@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 	"net/http"
+	"os"
 
 	"github.com/joho/godotenv"
 
@@ -17,11 +18,31 @@ import (
 	"github.com/shanmeiliu/rag-infra-go/internal/transport"
 	internalvector "github.com/shanmeiliu/rag-infra-go/internal/vectorstore"
 )
-
-func main() {
-	if err := godotenv.Load(); err != nil {
-		log.Println("No .env file found, using system environment variables")
+func loadEnv() {
+	if envFile := os.Getenv("ENV_FILE"); envFile != "" {
+		if err := godotenv.Load(envFile); err == nil {
+			log.Printf("loaded env from %s", envFile)
+			return
+		}
 	}
+
+	candidates := []string{
+		".env",
+		"../.env",
+		"../../.env",
+	}
+
+	for _, path := range candidates {
+		if err := godotenv.Load(path); err == nil {
+			log.Printf("loaded env from %s", path)
+			return
+		}
+	}
+
+	log.Println("No .env file found, using system environment variables")
+}
+func main() {
+	loadEnv()
 
 	ctx := context.Background()
 

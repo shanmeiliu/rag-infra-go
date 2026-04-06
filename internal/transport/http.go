@@ -2,32 +2,137 @@ package transport
 
 import (
 	"encoding/json"
+	"fmt"
 	"net/http"
 
 	"github.com/shanmeiliu/rag-infra-go/internal/chat"
+	"github.com/shanmeiliu/rag-infra-go/internal/ingestion"
+	"github.com/shanmeiliu/rag-infra-go/pkg/vectorstore"
 )
 
 type Handler struct {
-	svc *chat.Service
+	chatSvc      *chat.Service
+	ingestionSvc *ingestion.Service
+	store        vectorstore.Store
 }
 
-func NewHTTPHandler(s *chat.Service) *Handler {
-	return &Handler{svc: s}
+func NewHTTPHandler(chatSvc *chat.Service, ingestionSvc *ingestion.Service, store vectorstore.Store) *Handler {
+	return &Handler{
+		chatSvc:      chatSvc,
+		ingestionSvc: ingestionSvc,
+		store:        store,
+	}
 }
 
 func (h *Handler) Routes() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/api/chat", h.chat)
+	mux.HandleFunc("/api/chat/stream", h.chatStream)
+	mux.HandleFunc("/api/ingest", h.ingest)
+	mux.HandleFunc("/healthz", h.health)
 	return mux
 }
 
+func (h *Handler) health(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+}
+
 func (h *Handler) chat(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
 	var req chat.Request
-	json.NewDecoder(r.Body).Decode(&req)
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
 
-	resp, _ := h.svc.Ask(r.Context(), req)
+	resp, err := h.chatSvc.Ask(r.Context(), req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
 
-	json.NewEncoder(w).Encode(map[string]interface{}{
-    "response": resp,
-})
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(resp)
+}
+
+func (h *Handler) chatStream(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		http.Error(w, "streaming unsupported", http.StatusInternalServerError)
+		return
+	}
+
+	var req chat.Request
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	stream, err := h.chatSvc.Stream(r.Context(), req)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+
+	for chunk := range stream {
+		data, _ := json.Marshal(map[string]string{
+			"type":    "token",
+			"content": chunk,
+		})
+		_, _ = fmt.Fprintf(w, "data: %s\n\n", data)
+		flusher.Flush()
+	}
+
+	done, _ := json.Marshal(map[string]string{"type": "done"})
+	_, _ = fmt.Fprintf(w, "data: %s\n\n", done)
+	flusher.Flush()
+}
+
+func (h *Handler) ingest(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Replace bool                   `json:"replace"`
+		Chunks  []ingestion.InputChunk `json:"chunks"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.Replace {
+		if err := h.store.DeleteAll(r.Context()); err != nil {
+			http.Error(w, err.Error(), http.StatusInternalServerError)
+			return
+		}
+	}
+
+	if err := h.ingestionSvc.Ingest(r.Context(), req.Chunks); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"ingested": len(req.Chunks),
+		"replace":  req.Replace,
+	})
 }

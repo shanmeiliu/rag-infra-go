@@ -1,8 +1,6 @@
-Here’s a **clean, production-style README** you can directly copy into your repo. It’s written to impress recruiters and also act as your own design reference.
+# RAG Platform (Go + pgvector)
 
----
-
-# 🧠 rag-infra-go
+A modular, production-oriented Retrieval-Augmented Generation (RAG) system built in Go.
 
 **Production-oriented Agentic RAG backend implemented in Go**
 

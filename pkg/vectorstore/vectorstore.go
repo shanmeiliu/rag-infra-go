@@ -21,4 +21,5 @@ type SearchResult struct {
 type Store interface {
 	Upsert(ctx context.Context, chunks []Chunk) error
 	Search(ctx context.Context, embedding []float32, topK int, filters map[string]any) ([]SearchResult, error)
+	DeleteAll(ctx context.Context) error
 }

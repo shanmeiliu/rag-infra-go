@@ -1,7 +1,5 @@
 package embedding
 
-package embedding
-
 import "context"
 
 type Client interface {

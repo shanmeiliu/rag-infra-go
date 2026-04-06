@@ -137,12 +137,40 @@ func (s *Service) Stream(ctx context.Context, req Request) (<-chan string, error
 
 	prompt := buildPrompt(rewritten, docs, history)
 
-	stream, err := s.llm.Stream(ctx, prompt)
+	rawStream, err := s.llm.Stream(ctx, prompt)
 	if err != nil {
 		return nil, err
 	}
 
-	return stream, nil
+	out := make(chan string)
+
+	go func() {
+		defer close(out)
+
+		var fullAnswer strings.Builder
+
+		_ = s.memory.Save(ctx, req.SessionID, memory.Message{
+			Role:    "user",
+			Content: req.Query,
+		})
+
+		for token := range rawStream {
+			fullAnswer.WriteString(token)
+
+			select {
+			case <-ctx.Done():
+				return
+			case out <- token:
+			}
+		}
+
+		_ = s.memory.Save(ctx, req.SessionID, memory.Message{
+			Role:    "assistant",
+			Content: fullAnswer.String(),
+		})
+	}()
+
+	return out, nil
 }
 
 func buildPrompt(query string, docs []Document, history []memory.Message) string {
