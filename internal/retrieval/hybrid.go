@@ -5,7 +5,7 @@ import (
 	"database/sql"
 	"sort"
 
-	"github.com/shanmeiliu/rag-platform-go/pkg/vectorstore"
+	"github.com/shanmeiliu/rag-infra-go/pkg/vectorstore"
 )
 
 type HybridRetriever struct {
