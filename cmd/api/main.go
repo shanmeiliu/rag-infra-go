@@ -81,17 +81,19 @@ func main() {
 	llmClient := providers.NewOpenAIClient()
 	store := internalvector.NewPGVectorStore(postgresDB, profile)
 
-	retriever := retrieval.NewPGVectorRetriever(embedder, store, 5)
+	// retriever := retrieval.NewPGVectorRetriever(embedder, store, 5)
+	retriever := retrieval.NewHybridRetriever(store, postgresDB, 5, 0.7)
 	rewriter := rewrite.NewSimpleRewriter()
 	memStore := memory.NewInMemoryStore()
 	ingestionSvc := ingestion.NewService(embedder, store)
 
 	chatSvc := chat.NewService(chat.Dependencies{
-		Rewriter:  rewriter,
-		Retriever: retriever,
-		Memory:    memStore,
-		LLM:       llmClient,
-	})
+	Rewriter:  rewriter,
+	Retriever: retriever,
+	Memory:    memStore,
+	LLM:       llmClient,
+	Embedder:  embedder,
+})
 
 	handler := transport.NewHTTPHandler(chatSvc, ingestionSvc, store)
 

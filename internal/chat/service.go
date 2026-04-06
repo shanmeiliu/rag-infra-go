@@ -7,14 +7,19 @@ import (
 
 	"github.com/shanmeiliu/rag-infra-go/internal/memory"
 	"github.com/shanmeiliu/rag-infra-go/pkg/llm"
+	"github.com/shanmeiliu/rag-infra-go/pkg/embedding"
 )
 
 type Rewriter interface {
 	Rewrite(ctx context.Context, query string, history []memory.Message) (string, error)
 }
 
+// type Retriever interface {
+// 	Retrieve(ctx context.Context, query string) ([]Document, error)
+// }
+
 type Retriever interface {
-	Retrieve(ctx context.Context, query string) ([]Document, error)
+	Retrieve(ctx context.Context, query string, embedding []float32) ([]Document, error)
 }
 
 type MemoryStore interface {
@@ -33,6 +38,7 @@ type Dependencies struct {
 	Retriever Retriever
 	Memory    MemoryStore
 	LLM       llm.Client
+	Embedder  embedding.Client
 }
 
 type Service struct {
@@ -40,6 +46,7 @@ type Service struct {
 	retriever Retriever
 	memory    MemoryStore
 	llm       llm.Client
+	embedder  embedding.Client
 }
 
 type Request struct {
@@ -59,6 +66,7 @@ func NewService(dep Dependencies) *Service {
 		retriever: dep.Retriever,
 		memory:    dep.Memory,
 		llm:       dep.LLM,
+		embedder:  dep.Embedder,
 	}
 }
 
@@ -80,10 +88,24 @@ func (s *Service) Ask(ctx context.Context, req Request) (*Response, error) {
 		return nil, err
 	}
 
-	docs, err := s.retriever.Retrieve(ctx, rewritten)
+	// For hybrid retriever, we need to get the embedding first
+	embedding, err := s.embedder.Embed(ctx, rewritten)
 	if err != nil {
 		return nil, err
 	}
+
+	docs, err := s.retriever.Retrieve(ctx, rewritten, embedding)
+	if err != nil {
+		return nil, err
+	}
+
+	// Reserved for old retriever
+	// docs, err := s.retriever.Retrieve(ctx, rewritten)
+	// if err != nil {
+	// 	return nil, err
+	// }
+
+	
 
 	prompt := buildPrompt(rewritten, docs, history)
 	answer, err := s.llm.Generate(ctx, prompt)
@@ -130,7 +152,20 @@ func (s *Service) Stream(ctx context.Context, req Request) (<-chan string, error
 		return nil, err
 	}
 
-	docs, err := s.retriever.Retrieve(ctx, rewritten)
+	// Reserved for old retriever
+
+	// docs, err := s.retriever.Retrieve(ctx, rewritten)
+	// if err != nil {
+	// 	return nil, err
+	// }
+
+	// For hybrid retriever, we need to get the embedding first
+	embedding, err := s.embedder.Embed(ctx, rewritten)
+	if err != nil {
+		return nil, err
+	}
+
+	docs, err := s.retriever.Retrieve(ctx, rewritten, embedding)
 	if err != nil {
 		return nil, err
 	}
