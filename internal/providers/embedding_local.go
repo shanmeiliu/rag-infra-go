@@ -9,23 +9,25 @@ import (
 )
 
 type LocalEmbeddingClient struct {
-	baseURL string
-	model   string
-	dim     int
+	url   string
+	apiKey string
+	model string
+	dim   int
 }
 
 func NewLocalEmbeddingClient(cfg ProviderConfig) *LocalEmbeddingClient {
 	return &LocalEmbeddingClient{
-		baseURL: cfg.LocalEmbeddingBaseURL,
-		model:   cfg.LocalEmbeddingModel,
-		dim:     768,
+		url:   cfg.LocalEmbeddingURL,
+		apiKey: cfg.LocalEmbeddingAPIKey,
+		model: cfg.LocalEmbeddingModel,
+		dim:   cfg.LocalEmbeddingDimOverride,
 	}
 }
 
 func (c *LocalEmbeddingClient) Embed(ctx context.Context, text string) ([]float32, error) {
 	reqBody := map[string]any{
-		"model":  c.model,
-		"prompt": text,
+		"model": c.model,
+		"input": text,
 	}
 
 	data, err := json.Marshal(reqBody)
@@ -33,11 +35,16 @@ func (c *LocalEmbeddingClient) Embed(ctx context.Context, text string) ([]float3
 		return nil, err
 	}
 
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.baseURL+"/api/embeddings", bytes.NewBuffer(data))
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.url, bytes.NewBuffer(data))
 	if err != nil {
 		return nil, err
 	}
+
 	req.Header.Set("Content-Type", "application/json")
+
+	if c.apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	}
 
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
@@ -46,23 +53,42 @@ func (c *LocalEmbeddingClient) Embed(ctx context.Context, text string) ([]float3
 	defer resp.Body.Close()
 
 	if resp.StatusCode >= 300 {
-		return nil, fmt.Errorf("local embeddings failed with status %s", resp.Status)
+		var raw bytes.Buffer
+		_, _ = raw.ReadFrom(resp.Body)
+		return nil, fmt.Errorf("local embeddings failed: %s - %s", resp.Status, raw.String())
 	}
 
 	var result struct {
+		Data []struct {
+			Embedding []float32 `json:"embedding"`
+		} `json:"data"`
 		Embedding []float32 `json:"embedding"`
 	}
 
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, err
 	}
-	if len(result.Embedding) == 0 {
-		return nil, fmt.Errorf("no embedding returned")
+
+	if len(result.Data) > 0 && len(result.Data[0].Embedding) > 0 {
+		emb := result.Data[0].Embedding
+		if c.dim == 0 {
+			c.dim = len(emb)
+		}
+		return emb, nil
 	}
 
-	return result.Embedding, nil
+	if len(result.Embedding) > 0 {
+		emb := result.Embedding
+		if c.dim == 0 {
+			c.dim = len(emb)
+		}
+		return emb, nil
+	}
+
+	return nil, fmt.Errorf("no embedding returned")
 }
 
-func (c *LocalEmbeddingClient) Dimension() int {
-	return c.dim
-}
+func (c *LocalEmbeddingClient) Dimension() int       { return c.dim }
+func (c *LocalEmbeddingClient) SetDimension(dim int) { c.dim = dim }
+func (c *LocalEmbeddingClient) ProviderName() string { return "local" }
+func (c *LocalEmbeddingClient) ModelName() string    { return c.model }

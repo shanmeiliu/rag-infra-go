@@ -39,18 +39,22 @@ func main() {
 		log.Fatalf("failed to create embedding client: %v", err)
 	}
 
-	profile := providers.NewEmbeddingProfile(
-		embedder.ProviderName(),
-		embedder.ModelName(),
-		embedder.Dimension(),
-	)
+	profile, err := providers.ResolveEmbeddingProfile(ctx, embedder, providerCfg)
+	if err != nil {
+		log.Fatalf("failed to resolve embedding profile: %v", err)
+	}
 
 	if err := db.EnsureBaseSchema(ctx, postgresDB); err != nil {
 		log.Fatalf("failed to ensure base schema: %v", err)
 	}
-
+	if err := db.EnsureProfileSchema(ctx, postgresDB); err != nil {
+		log.Fatalf("failed to ensure profile schema: %v", err)
+	}
 	if err := db.EnsureEmbeddingTable(ctx, postgresDB, profile); err != nil {
 		log.Fatalf("failed to ensure embedding table: %v", err)
+	}
+	if err := db.UpsertEmbeddingProfile(ctx, postgresDB, profile, true); err != nil {
+		log.Fatalf("failed to upsert embedding profile: %v", err)
 	}
 
 	llmClient := providers.NewOpenAIClient()

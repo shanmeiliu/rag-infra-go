@@ -12,6 +12,7 @@ type OpenAIEmbeddingClient struct {
 	apiKey  string
 	baseURL string
 	model   string
+	dim     int
 }
 
 func NewOpenAIEmbeddingClient(cfg ProviderConfig) *OpenAIEmbeddingClient {
@@ -19,6 +20,7 @@ func NewOpenAIEmbeddingClient(cfg ProviderConfig) *OpenAIEmbeddingClient {
 		apiKey:  cfg.OpenAIAPIKey,
 		baseURL: cfg.OpenAIBaseURL,
 		model:   cfg.OpenAIEmbeddingModel,
+		dim:     1536,
 	}
 }
 
@@ -59,13 +61,14 @@ func (c *OpenAIEmbeddingClient) Embed(ctx context.Context, text string) ([]float
 	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
 		return nil, err
 	}
-	if len(result.Data) == 0 {
+	if len(result.Data) == 0 || len(result.Data[0].Embedding) == 0 {
 		return nil, fmt.Errorf("no embedding returned")
 	}
 
 	return result.Data[0].Embedding, nil
 }
 
-func (c *OpenAIEmbeddingClient) Dimension() int {
-	return 1536
-}
+func (c *OpenAIEmbeddingClient) Dimension() int           { return c.dim }
+func (c *OpenAIEmbeddingClient) SetDimension(dim int)     { c.dim = dim }
+func (c *OpenAIEmbeddingClient) ProviderName() string     { return "openai" }
+func (c *OpenAIEmbeddingClient) ModelName() string        { return c.model }
