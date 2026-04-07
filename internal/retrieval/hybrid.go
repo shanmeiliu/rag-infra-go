@@ -40,13 +40,13 @@ func NewHybridRetriever(store vectorstore.Store, db *sql.DB, topK int, alpha flo
 	}
 }
 
-func (r *HybridRetriever) Retrieve(ctx context.Context, query string, embedding []float32) ([]chat.Document, error) {
-	vecResults, err := r.vectorStore.Search(ctx, embedding, r.topK*2, nil)
+func (r *HybridRetriever) Retrieve(ctx context.Context, query string, embedding []float32, filters map[string]any) ([]chat.Document, error) {
+	vecResults, err := r.vectorStore.Search(ctx, embedding, r.topK*2, filters)
 	if err != nil {
 		return nil, err
 	}
 
-	kwResults, err := KeywordSearch(ctx, r.db, query, r.topK*2)
+	kwResults, err := KeywordSearch(ctx, r.db, query, r.topK*2, filters)
 	if err != nil {
 		return nil, err
 	}

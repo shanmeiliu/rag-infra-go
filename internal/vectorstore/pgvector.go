@@ -63,6 +63,9 @@ func (s *PGVectorStore) Search(ctx context.Context, embedding []float32, topK in
 		topK = 5
 	}
 
+	var args []any
+	args = append(args, toVectorLiteral(embedding))
+
 	query := fmt.Sprintf(`
 SELECT
 	c.chunk_id,
@@ -72,11 +75,34 @@ SELECT
 	e.embedding <-> $1::vector AS score
 FROM %s e
 JOIN chunks c ON c.chunk_id = e.chunk_id
-ORDER BY e.embedding <-> $1::vector
-LIMIT $2;
 `, s.profile.TableName())
 
-	rows, err := s.db.QueryContext(ctx, query, toVectorLiteral(embedding), topK)
+	whereParts := make([]string, 0)
+
+	nextArg := 2
+
+	if docID, ok := filters["doc_id"].(string); ok && strings.TrimSpace(docID) != "" {
+		whereParts = append(whereParts, fmt.Sprintf("c.doc_id = $%d", nextArg))
+		args = append(args, docID)
+		nextArg++
+	}
+
+	if metadataRaw, ok := filters["metadata"].(map[string]any); ok {
+		for k, v := range metadataRaw {
+			whereParts = append(whereParts, fmt.Sprintf("c.metadata->>'%s' = $%d", escapeSQLIdentifierLike(k), nextArg))
+			args = append(args, fmt.Sprintf("%v", v))
+			nextArg++
+		}
+	}
+
+	if len(whereParts) > 0 {
+		query += " WHERE " + strings.Join(whereParts, " AND ")
+	}
+
+	query += fmt.Sprintf(" ORDER BY e.embedding <-> $1::vector LIMIT $%d", nextArg)
+	args = append(args, topK)
+
+	rows, err := s.db.QueryContext(ctx, query, args...)
 	if err != nil {
 		return nil, err
 	}
@@ -113,4 +139,9 @@ func toVectorLiteral(v []float32) string {
 		parts[i] = fmt.Sprintf("%f", x)
 	}
 	return "[" + strings.Join(parts, ",") + "]"
+}
+
+func escapeSQLIdentifierLike(s string) string {
+	s = strings.ReplaceAll(s, `'`, `''`)
+	return s
 }

@@ -6,20 +6,16 @@ import (
 	"strings"
 
 	"github.com/shanmeiliu/rag-infra-go/internal/memory"
-	"github.com/shanmeiliu/rag-infra-go/pkg/llm"
 	"github.com/shanmeiliu/rag-infra-go/pkg/embedding"
+	"github.com/shanmeiliu/rag-infra-go/pkg/llm"
 )
 
 type Rewriter interface {
 	Rewrite(ctx context.Context, query string, history []memory.Message) (string, error)
 }
 
-// type Retriever interface {
-// 	Retrieve(ctx context.Context, query string) ([]Document, error)
-// }
-
 type Retriever interface {
-	Retrieve(ctx context.Context, query string, embedding []float32) ([]Document, error)
+	Retrieve(ctx context.Context, query string, embedding []float32, filters map[string]any) ([]Document, error)
 }
 
 type MemoryStore interface {
@@ -50,14 +46,16 @@ type Service struct {
 }
 
 type Request struct {
-	SessionID string `json:"session_id"`
-	Query     string `json:"query"`
+	SessionID string         `json:"session_id"`
+	Query     string         `json:"query"`
+	Filters   map[string]any `json:"filters,omitempty"`
 }
 
 type Response struct {
-	RewrittenQuery string     `json:"rewritten_query"`
-	Documents      []Document `json:"documents"`
-	Answer         string     `json:"answer"`
+	RewrittenQuery string         `json:"rewritten_query"`
+	Documents      []Document     `json:"documents"`
+	Answer         string         `json:"answer"`
+	Filters        map[string]any `json:"filters,omitempty"`
 }
 
 func NewService(dep Dependencies) *Service {
@@ -88,24 +86,15 @@ func (s *Service) Ask(ctx context.Context, req Request) (*Response, error) {
 		return nil, err
 	}
 
-	// For hybrid retriever, we need to get the embedding first
-	embedding, err := s.embedder.Embed(ctx, rewritten)
+	embeddingVec, err := s.embedder.Embed(ctx, rewritten)
 	if err != nil {
 		return nil, err
 	}
 
-	docs, err := s.retriever.Retrieve(ctx, rewritten, embedding)
+	docs, err := s.retriever.Retrieve(ctx, rewritten, embeddingVec, req.Filters)
 	if err != nil {
 		return nil, err
 	}
-
-	// Reserved for old retriever
-	// docs, err := s.retriever.Retrieve(ctx, rewritten)
-	// if err != nil {
-	// 	return nil, err
-	// }
-
-	
 
 	prompt := buildPrompt(rewritten, docs, history)
 	answer, err := s.llm.Generate(ctx, prompt)
@@ -131,6 +120,7 @@ func (s *Service) Ask(ctx context.Context, req Request) (*Response, error) {
 		RewrittenQuery: rewritten,
 		Documents:      docs,
 		Answer:         answer,
+		Filters:        req.Filters,
 	}, nil
 }
 
@@ -152,20 +142,12 @@ func (s *Service) Stream(ctx context.Context, req Request) (<-chan string, error
 		return nil, err
 	}
 
-	// Reserved for old retriever
-
-	// docs, err := s.retriever.Retrieve(ctx, rewritten)
-	// if err != nil {
-	// 	return nil, err
-	// }
-
-	// For hybrid retriever, we need to get the embedding first
-	embedding, err := s.embedder.Embed(ctx, rewritten)
+	embeddingVec, err := s.embedder.Embed(ctx, rewritten)
 	if err != nil {
 		return nil, err
 	}
 
-	docs, err := s.retriever.Retrieve(ctx, rewritten, embedding)
+	docs, err := s.retriever.Retrieve(ctx, rewritten, embeddingVec, req.Filters)
 	if err != nil {
 		return nil, err
 	}
