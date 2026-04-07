@@ -13,11 +13,13 @@ import (
 	"github.com/shanmeiliu/rag-infra-go/internal/ingestion"
 	"github.com/shanmeiliu/rag-infra-go/internal/memory"
 	"github.com/shanmeiliu/rag-infra-go/internal/providers"
+	"github.com/shanmeiliu/rag-infra-go/internal/rerank"
 	"github.com/shanmeiliu/rag-infra-go/internal/retrieval"
 	"github.com/shanmeiliu/rag-infra-go/internal/rewrite"
 	"github.com/shanmeiliu/rag-infra-go/internal/transport"
 	internalvector "github.com/shanmeiliu/rag-infra-go/internal/vectorstore"
 )
+
 func loadEnv() {
 	if envFile := os.Getenv("ENV_FILE"); envFile != "" {
 		if err := godotenv.Load(envFile); err == nil {
@@ -82,18 +84,24 @@ func main() {
 	store := internalvector.NewPGVectorStore(postgresDB, profile)
 
 	// retriever := retrieval.NewPGVectorRetriever(embedder, store, 5)
-	retriever := retrieval.NewHybridRetriever(store, postgresDB, 5, 0.7)
+	rerankCfg := rerank.LoadConfig()
+	rerankClient, err := rerank.NewClient(rerankCfg)
+	if err != nil {
+		log.Fatalf("failed to create reranker client: %v", err)
+	}
+
+	retriever := retrieval.NewHybridRetriever(store, postgresDB, 5, 0.7, rerankClient, rerankCfg.TopK)
 	rewriter := rewrite.NewSimpleRewriter()
 	memStore := memory.NewInMemoryStore()
 	ingestionSvc := ingestion.NewService(embedder, store)
 
 	chatSvc := chat.NewService(chat.Dependencies{
-	Rewriter:  rewriter,
-	Retriever: retriever,
-	Memory:    memStore,
-	LLM:       llmClient,
-	Embedder:  embedder,
-})
+		Rewriter:  rewriter,
+		Retriever: retriever,
+		Memory:    memStore,
+		LLM:       llmClient,
+		Embedder:  embedder,
+	})
 
 	handler := transport.NewHTTPHandler(chatSvc, ingestionSvc, store)
 
