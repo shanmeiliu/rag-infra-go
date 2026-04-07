@@ -7,8 +7,8 @@ import (
 )
 
 type ProviderConfig struct {
-	EmbeddingProvider string
-
+	EmbeddingProvider    string
+	EnableHNSWIndex      bool
 	OpenAIAPIKey         string
 	OpenAIBaseURL        string
 	OpenAIEmbeddingModel string
@@ -29,8 +29,8 @@ type ProviderConfig struct {
 
 func LoadProviderConfig() ProviderConfig {
 	return ProviderConfig{
-		EmbeddingProvider: getEnv("EMBEDDING_PROVIDER", "openai"),
-
+		EmbeddingProvider:    getEnv("EMBEDDING_PROVIDER", "openai"),
+		EnableHNSWIndex:      getEnvBool("ENABLE_HNSW_INDEX", true),
 		OpenAIAPIKey:         os.Getenv("OPENAI_API_KEY"),
 		OpenAIBaseURL:        getEnv("OPENAI_BASE_URL", "https://api.openai.com/v1"),
 		OpenAIEmbeddingModel: getEnv("OPENAI_EMBEDDING_MODEL", "text-embedding-3-small"),

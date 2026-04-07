@@ -73,7 +73,12 @@ func main() {
 	if err := db.EnsureProfileSchema(ctx, postgresDB); err != nil {
 		log.Fatalf("failed to ensure profile schema: %v", err)
 	}
-	if err := db.EnsureEmbeddingTable(ctx, postgresDB, profile); err != nil {
+	if err := db.EnsureEmbeddingTable(
+		ctx,
+		postgresDB,
+		profile,
+		providerCfg.EnableHNSWIndex,
+	); err != nil {
 		log.Fatalf("failed to ensure embedding table: %v", err)
 	}
 	if err := db.UpsertEmbeddingProfile(ctx, postgresDB, profile, true); err != nil {
