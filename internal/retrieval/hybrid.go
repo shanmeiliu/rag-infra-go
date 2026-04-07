@@ -6,6 +6,7 @@ import (
 	"sort"
 
 	"github.com/shanmeiliu/rag-infra-go/internal/chat"
+	"github.com/shanmeiliu/rag-infra-go/pkg/reranker"
 	"github.com/shanmeiliu/rag-infra-go/pkg/vectorstore"
 )
 
@@ -14,14 +15,19 @@ type HybridRetriever struct {
 	db          *sql.DB
 	topK        int
 	alpha       float64
+	reranker    reranker.Client
+	rerankTopK  int
 }
 
-func NewHybridRetriever(store vectorstore.Store, db *sql.DB, topK int, alpha float64) *HybridRetriever {
+func NewHybridRetriever(store vectorstore.Store, db *sql.DB, topK int, alpha float64, rr reranker.Client, rerankTopK int) *HybridRetriever {
 	if topK <= 0 {
 		topK = 5
 	}
 	if alpha <= 0 || alpha >= 1 {
 		alpha = 0.7
+	}
+	if rerankTopK <= 0 {
+		rerankTopK = topK
 	}
 
 	return &HybridRetriever{
@@ -29,16 +35,18 @@ func NewHybridRetriever(store vectorstore.Store, db *sql.DB, topK int, alpha flo
 		db:          db,
 		topK:        topK,
 		alpha:       alpha,
+		reranker:    rr,
+		rerankTopK:  rerankTopK,
 	}
 }
 
 func (r *HybridRetriever) Retrieve(ctx context.Context, query string, embedding []float32) ([]chat.Document, error) {
-	vecResults, err := r.vectorStore.Search(ctx, embedding, r.topK, nil)
+	vecResults, err := r.vectorStore.Search(ctx, embedding, r.topK*2, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	kwResults, err := KeywordSearch(ctx, r.db, query, r.topK)
+	kwResults, err := KeywordSearch(ctx, r.db, query, r.topK*2)
 	if err != nil {
 		return nil, err
 	}
@@ -58,7 +66,7 @@ func (r *HybridRetriever) Retrieve(ctx context.Context, query string, embedding 
 	}
 
 	for _, k := range kwResults {
-		scoreMap[k.ChunkID] += (1-r.alpha)*k.Score
+		scoreMap[k.ChunkID] += (1 - r.alpha) * k.Score
 
 		if _, exists := docMap[k.ChunkID]; !exists {
 			docMap[k.ChunkID] = chat.Document{
@@ -83,9 +91,39 @@ func (r *HybridRetriever) Retrieve(ctx context.Context, query string, embedding 
 		return pairs[i].score > pairs[j].score
 	})
 
-	results := make([]chat.Document, 0, min(r.topK, len(pairs)))
-	for i := 0; i < len(pairs) && i < r.topK; i++ {
-		results = append(results, docMap[pairs[i].id])
+	candidates := make([]reranker.Candidate, 0, min(len(pairs), r.topK*2))
+	for i := 0; i < len(pairs) && i < r.topK*2; i++ {
+		doc := docMap[pairs[i].id]
+		candidates = append(candidates, reranker.Candidate{
+			ID:      doc.ID,
+			DocID:   doc.Source,
+			Content: doc.Content,
+			Score:   pairs[i].score,
+		})
+	}
+
+	if r.reranker != nil && len(candidates) > 0 {
+		reranked, err := r.reranker.Rerank(ctx, query, candidates, r.rerankTopK)
+		if err == nil && len(reranked) > 0 {
+			out := make([]chat.Document, 0, min(r.topK, len(reranked)))
+			for i := 0; i < len(reranked) && i < r.topK; i++ {
+				out = append(out, chat.Document{
+					ID:      reranked[i].ID,
+					Content: reranked[i].Content,
+					Source:  reranked[i].DocID,
+				})
+			}
+			return out, nil
+		}
+	}
+
+	results := make([]chat.Document, 0, min(r.topK, len(candidates)))
+	for i := 0; i < len(candidates) && i < r.topK; i++ {
+		results = append(results, chat.Document{
+			ID:      candidates[i].ID,
+			Content: candidates[i].Content,
+			Source:  candidates[i].DocID,
+		})
 	}
 
 	return results, nil
