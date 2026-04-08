@@ -8,6 +8,7 @@ import (
 
 	"github.com/joho/godotenv"
 
+	"github.com/shanmeiliu/rag-infra-go/internal/auth"
 	"github.com/shanmeiliu/rag-infra-go/internal/chat"
 	"github.com/shanmeiliu/rag-infra-go/internal/db"
 	"github.com/shanmeiliu/rag-infra-go/internal/ingestion"
@@ -43,6 +44,7 @@ func loadEnv() {
 
 	log.Println("No .env file found, using system environment variables")
 }
+
 func main() {
 	loadEnv()
 
@@ -73,12 +75,7 @@ func main() {
 	if err := db.EnsureProfileSchema(ctx, postgresDB); err != nil {
 		log.Fatalf("failed to ensure profile schema: %v", err)
 	}
-	if err := db.EnsureEmbeddingTable(
-		ctx,
-		postgresDB,
-		profile,
-		providerCfg.EnableHNSWIndex,
-	); err != nil {
+	if err := db.EnsureEmbeddingTable(ctx, postgresDB, profile, providerCfg.EnableHNSWIndex); err != nil {
 		log.Fatalf("failed to ensure embedding table: %v", err)
 	}
 	if err := db.UpsertEmbeddingProfile(ctx, postgresDB, profile, true); err != nil {
@@ -88,7 +85,6 @@ func main() {
 	llmClient := providers.NewOpenAIClient()
 	store := internalvector.NewPGVectorStore(postgresDB, profile)
 
-	// retriever := retrieval.NewPGVectorRetriever(embedder, store, 5)
 	rerankCfg := rerank.LoadConfig()
 	rerankClient, err := rerank.NewClient(rerankCfg)
 	if err != nil {
@@ -99,6 +95,7 @@ func main() {
 	rewriter := rewrite.NewSimpleRewriter()
 	memStore := memory.NewInMemoryStore()
 	ingestionSvc := ingestion.NewService(embedder, store)
+	authCfg := auth.ConfigFromEnv()
 
 	chatSvc := chat.NewService(chat.Dependencies{
 		Rewriter:  rewriter,
@@ -108,7 +105,7 @@ func main() {
 		Embedder:  embedder,
 	})
 
-	handler := transport.NewHTTPHandler(chatSvc, ingestionSvc, store)
+	handler := transport.NewHTTPHandler(chatSvc, ingestionSvc, store, authCfg)
 
 	log.Printf("embedding provider: %s", profile.Provider)
 	log.Printf("embedding model: %s", profile.Model)
