@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"net/http"
 
+	"github.com/shanmeiliu/rag-infra-go/internal/auth"
 	"github.com/shanmeiliu/rag-infra-go/internal/chat"
 	"github.com/shanmeiliu/rag-infra-go/internal/ingestion"
 	"github.com/shanmeiliu/rag-infra-go/pkg/vectorstore"
@@ -14,22 +15,38 @@ type Handler struct {
 	chatSvc      *chat.Service
 	ingestionSvc *ingestion.Service
 	store        vectorstore.Store
+	authCfg      auth.Config
 }
 
-func NewHTTPHandler(chatSvc *chat.Service, ingestionSvc *ingestion.Service, store vectorstore.Store) *Handler {
+func NewHTTPHandler(
+	chatSvc *chat.Service,
+	ingestionSvc *ingestion.Service,
+	store vectorstore.Store,
+	authCfg auth.Config,
+) *Handler {
 	return &Handler{
 		chatSvc:      chatSvc,
 		ingestionSvc: ingestionSvc,
 		store:        store,
+		authCfg:      authCfg,
 	}
 }
 
 func (h *Handler) Routes() http.Handler {
 	mux := http.NewServeMux()
+
+	authHandler := NewAuthHandler(h.authCfg)
+	adminAuth := auth.Middleware(h.authCfg.JWTSecret)
+
+	mux.HandleFunc("/healthz", h.health)
+
+	mux.HandleFunc("/api/auth/login", authHandler.Login)
+
 	mux.HandleFunc("/api/chat", h.chat)
 	mux.HandleFunc("/api/chat/stream", h.chatStream)
-	mux.HandleFunc("/api/ingest", h.ingest)
-	mux.HandleFunc("/healthz", h.health)
+
+	mux.Handle("/api/ingest", adminAuth(http.HandlerFunc(h.ingest)))
+
 	return mux
 }
 
