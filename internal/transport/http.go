@@ -16,6 +16,7 @@ type Handler struct {
 	ingestionSvc *ingestion.Service
 	store        vectorstore.Store
 	authCfg      auth.Config
+	authSvc      *auth.Service
 }
 
 func NewHTTPHandler(
@@ -23,29 +24,33 @@ func NewHTTPHandler(
 	ingestionSvc *ingestion.Service,
 	store vectorstore.Store,
 	authCfg auth.Config,
+	authSvc *auth.Service,
 ) *Handler {
 	return &Handler{
 		chatSvc:      chatSvc,
 		ingestionSvc: ingestionSvc,
 		store:        store,
 		authCfg:      authCfg,
+		authSvc:      authSvc,
 	}
 }
 
 func (h *Handler) Routes() http.Handler {
 	mux := http.NewServeMux()
 
-	authHandler := NewAuthHandler(h.authCfg)
-	adminAuth := auth.Middleware(h.authCfg.JWTSecret)
+	authHandler := NewAuthHandler(h.authCfg, h.authSvc)
+	requireAuth := auth.AuthMiddleware(h.authCfg, h.authSvc)
 
 	mux.HandleFunc("/healthz", h.health)
 
 	mux.HandleFunc("/api/auth/login", authHandler.Login)
+	mux.Handle("/api/auth/me", requireAuth(http.HandlerFunc(authHandler.Me)))
+	mux.Handle("/api/auth/logout", requireAuth(http.HandlerFunc(authHandler.Logout)))
 
-	mux.HandleFunc("/api/chat", h.chat)
-	mux.HandleFunc("/api/chat/stream", h.chatStream)
+	mux.Handle("/api/chat", requireAuth(http.HandlerFunc(h.chat)))
+	mux.Handle("/api/chat/stream", requireAuth(http.HandlerFunc(h.chatStream)))
 
-	mux.Handle("/api/ingest", adminAuth(http.HandlerFunc(h.ingest)))
+	mux.Handle("/api/ingest", requireAuth(auth.AdminOnly(http.HandlerFunc(h.ingest))))
 
 	return mux
 }

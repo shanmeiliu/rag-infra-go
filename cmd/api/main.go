@@ -75,11 +75,22 @@ func main() {
 	if err := db.EnsureProfileSchema(ctx, postgresDB); err != nil {
 		log.Fatalf("failed to ensure profile schema: %v", err)
 	}
+	if err := db.EnsureAuthSchema(ctx, postgresDB); err != nil {
+		log.Fatalf("failed to ensure auth schema: %v", err)
+	}
 	if err := db.EnsureEmbeddingTable(ctx, postgresDB, profile, providerCfg.EnableHNSWIndex); err != nil {
 		log.Fatalf("failed to ensure embedding table: %v", err)
 	}
 	if err := db.UpsertEmbeddingProfile(ctx, postgresDB, profile, true); err != nil {
 		log.Fatalf("failed to upsert embedding profile: %v", err)
+	}
+
+	authCfg := auth.ConfigFromEnv()
+	authRepo := auth.NewRepository(postgresDB)
+	authSvc := auth.NewService(authCfg, authRepo)
+
+	if err := authSvc.EnsureAdminUser(ctx); err != nil {
+		log.Fatalf("failed to ensure admin user: %v", err)
 	}
 
 	llmClient := providers.NewOpenAIClient()
@@ -95,7 +106,6 @@ func main() {
 	rewriter := rewrite.NewSimpleRewriter()
 	memStore := memory.NewInMemoryStore()
 	ingestionSvc := ingestion.NewService(embedder, store)
-	authCfg := auth.ConfigFromEnv()
 
 	chatSvc := chat.NewService(chat.Dependencies{
 		Rewriter:  rewriter,
@@ -105,7 +115,7 @@ func main() {
 		Embedder:  embedder,
 	})
 
-	handler := transport.NewHTTPHandler(chatSvc, ingestionSvc, store, authCfg)
+	handler := transport.NewHTTPHandler(chatSvc, ingestionSvc, store, authCfg, authSvc)
 
 	log.Printf("embedding provider: %s", profile.Provider)
 	log.Printf("embedding model: %s", profile.Model)

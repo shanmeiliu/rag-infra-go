@@ -1,19 +1,41 @@
 package auth
 
-import "os"
+import (
+	"os"
+	"strconv"
+	"time"
+)
 
 type Config struct {
-	AdminEmail    string
-	AdminPassword string
-	JWTSecret     string
+	AdminEmail             string
+	AdminPassword          string
+	AdminUsername          string
+	SessionCookieName      string
+	SessionTTLHours        int
+	SecureCookies          bool
+	LocalRecruiterTTLDays  int
+	GoogleRecruiterTTLDays int
 }
 
 func ConfigFromEnv() Config {
 	return Config{
-		AdminEmail:    getEnv("ADMIN_EMAIL", ""),
-		AdminPassword: getEnv("ADMIN_PASSWORD", ""),
-		JWTSecret:     getEnv("JWT_SECRET", ""),
+		AdminEmail:             getEnv("ADMIN_EMAIL", ""),
+		AdminPassword:          getEnv("ADMIN_PASSWORD", ""),
+		AdminUsername:          getEnv("ADMIN_USERNAME", "admin"),
+		SessionCookieName:      getEnv("SESSION_COOKIE_NAME", "interview_copilot_session"),
+		SessionTTLHours:        getEnvInt("SESSION_TTL_HOURS", 24),
+		SecureCookies:          getEnvBool("SECURE_COOKIES", false),
+		LocalRecruiterTTLDays:  getEnvInt("LOCAL_RECRUITER_TTL_DAYS", 30),
+		GoogleRecruiterTTLDays: getEnvInt("GOOGLE_RECRUITER_TTL_DAYS", 365),
 	}
+}
+
+func (c Config) SessionTTL() time.Duration {
+	hours := c.SessionTTLHours
+	if hours <= 0 {
+		hours = 24
+	}
+	return time.Duration(hours) * time.Hour
 }
 
 func getEnv(key, fallback string) string {
@@ -22,4 +44,31 @@ func getEnv(key, fallback string) string {
 		return fallback
 	}
 	return v
+}
+
+func getEnvInt(key string, fallback int) int {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil {
+		return fallback
+	}
+	return n
+}
+
+func getEnvBool(key string, fallback bool) bool {
+	v := os.Getenv(key)
+	if v == "" {
+		return fallback
+	}
+	switch v {
+	case "1", "true", "TRUE", "yes", "YES":
+		return true
+	case "0", "false", "FALSE", "no", "NO":
+		return false
+	default:
+		return fallback
+	}
 }
