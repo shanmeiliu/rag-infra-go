@@ -89,7 +89,7 @@ func main() {
 	authCfg := auth.ConfigFromEnv()
 	authRepo := auth.NewRepository(postgresDB)
 	authSvc := auth.NewService(authCfg, authRepo)
-
+	googleOAuth := auth.NewGoogleOAuthClient(authCfg)
 	if err := authSvc.EnsureAdminUser(ctx); err != nil {
 		log.Fatalf("failed to ensure admin user: %v", err)
 	}
@@ -116,7 +116,7 @@ func main() {
 		Embedder:  embedder,
 	})
 
-	handler := transport.NewHTTPHandler(chatSvc, ingestionSvc, store, authCfg, authSvc)
+	handler := transport.NewHTTPHandler(chatSvc, ingestionSvc, store, authCfg, authSvc, googleOAuth)
 
 	corsCfg := httpx.DefaultCORSConfig()
 	router := httpx.CORSMiddleware(corsCfg)(handler.Routes())
@@ -130,5 +130,4 @@ func main() {
 	if err := http.ListenAndServe(":8080", router); err != nil {
 		log.Fatalf("server failed: %v", err)
 	}
-}
 }

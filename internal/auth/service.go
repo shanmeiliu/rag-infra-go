@@ -5,6 +5,7 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"strings"
 	"time"
 )
@@ -12,6 +13,7 @@ import (
 var ErrInvalidCredentials = errors.New("invalid credentials")
 var ErrInactiveUser = errors.New("user is not active")
 var ErrExpiredUser = errors.New("user account expired")
+var ErrGoogleLoginNotAllowed = errors.New("google login is not allowed for this account")
 
 type Service struct {
 	cfg  Config
@@ -69,15 +71,8 @@ func (s *Service) LoginWithPassword(ctx context.Context, username, password stri
 		return nil, "", err
 	}
 
-	if user.Status != "active" {
-		if user.Status == "expired" {
-			return nil, "", ErrExpiredUser
-		}
-		return nil, "", ErrInactiveUser
-	}
-
-	if user.ExpiresAt != nil && user.ExpiresAt.Before(time.Now()) {
-		return nil, "", ErrExpiredUser
+	if err := validateUserForLogin(user); err != nil {
+		return nil, "", err
 	}
 
 	if user.PasswordHash == nil || *user.PasswordHash == "" {
@@ -92,22 +87,47 @@ func (s *Service) LoginWithPassword(ctx context.Context, username, password stri
 		return nil, "", ErrInvalidCredentials
 	}
 
-	now := time.Now()
-	if err := s.repo.UpdateUserLoginTimestamps(ctx, user.ID, now); err != nil {
+	return s.createLoginSession(ctx, user, ipAddress, userAgent)
+}
+
+func (s *Service) LoginWithGoogle(ctx context.Context, googleUser *GoogleUserInfo, ipAddress, userAgent *string) (*User, string, error) {
+	user, err := s.repo.FindUserByGoogleSub(ctx, googleUser.Sub)
+	if err != nil && !errors.Is(err, ErrUserNotFound) {
 		return nil, "", err
 	}
 
-	rawSession, err := generateSessionToken()
-	if err != nil {
+	if errors.Is(err, ErrUserNotFound) {
+		userByEmail, emailErr := s.repo.FindUserByEmail(ctx, googleUser.Email)
+		if emailErr != nil && !errors.Is(emailErr, ErrUserNotFound) {
+			return nil, "", emailErr
+		}
+
+		if emailErr == nil && userByEmail != nil {
+			if userByEmail.Role != "admin" && userByEmail.Role != "recruiter" {
+				return nil, "", ErrGoogleLoginNotAllowed
+			}
+			if userByEmail.Status != "active" {
+				return nil, "", ErrInactiveUser
+			}
+
+			if err := s.repo.LinkGoogleAccount(ctx, userByEmail.ID, googleUser.Sub, googleUser.Email); err != nil {
+				return nil, "", err
+			}
+
+			user, err = s.repo.FindUserByID(ctx, userByEmail.ID)
+			if err != nil {
+				return nil, "", err
+			}
+		} else {
+			return nil, "", ErrGoogleLoginNotAllowed
+		}
+	}
+
+	if err := validateUserForLogin(user); err != nil {
 		return nil, "", err
 	}
 
-	expiresAt := now.Add(s.cfg.SessionTTL())
-	if err := s.repo.CreateSession(ctx, user.ID, rawSession, expiresAt, ipAddress, userAgent); err != nil {
-		return nil, "", err
-	}
-
-	return user, rawSession, nil
+	return s.createLoginSession(ctx, user, ipAddress, userAgent)
 }
 
 func (s *Service) AuthenticateSession(ctx context.Context, rawSession string) (*User, *Session, error) {
@@ -128,11 +148,8 @@ func (s *Service) AuthenticateSession(ctx context.Context, rawSession string) (*
 		return nil, nil, err
 	}
 
-	if user.Status != "active" {
-		return nil, nil, ErrInactiveUser
-	}
-	if user.ExpiresAt != nil && user.ExpiresAt.Before(time.Now()) {
-		return nil, nil, ErrExpiredUser
+	if err := validateUserForLogin(user); err != nil {
+		return nil, nil, err
 	}
 
 	now := time.Now()
@@ -146,10 +163,57 @@ func (s *Service) Logout(ctx context.Context, rawSession string) error {
 	return s.repo.RevokeSession(ctx, rawSession, time.Now())
 }
 
+func (s *Service) createLoginSession(ctx context.Context, user *User, ipAddress, userAgent *string) (*User, string, error) {
+	now := time.Now()
+	if err := s.repo.UpdateUserLoginTimestamps(ctx, user.ID, now); err != nil {
+		return nil, "", err
+	}
+
+	rawSession, err := generateSessionToken()
+	if err != nil {
+		return nil, "", err
+	}
+
+	expiresAt := now.Add(s.cfg.SessionTTL())
+	if err := s.repo.CreateSession(ctx, user.ID, rawSession, expiresAt, ipAddress, userAgent); err != nil {
+		return nil, "", err
+	}
+
+	return user, rawSession, nil
+}
+
+func validateUserForLogin(user *User) error {
+	if user.Status != "active" {
+		if user.Status == "expired" {
+			return ErrExpiredUser
+		}
+		return ErrInactiveUser
+	}
+	if user.ExpiresAt != nil && user.ExpiresAt.Before(time.Now()) {
+		return ErrExpiredUser
+	}
+	return nil
+}
+
 func generateSessionToken() (string, error) {
 	buf := make([]byte, 32)
 	if _, err := rand.Read(buf); err != nil {
 		return "", err
 	}
 	return base64.RawURLEncoding.EncodeToString(buf), nil
+}
+
+func BuildRecruiterExpiry(days int) *time.Time {
+	if days <= 0 {
+		return nil
+	}
+	t := time.Now().Add(time.Duration(days) * 24 * time.Hour)
+	return &t
+}
+
+func EnsureGoogleConfigured(cfg Config) error {
+	if cfg.GoogleClientID == "" || cfg.GoogleClientSecret == "" {
+		return fmt.Errorf("google oauth is not configured")
+	}
+	return nil
 }

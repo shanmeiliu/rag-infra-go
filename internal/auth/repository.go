@@ -21,7 +21,7 @@ func NewRepository(db *sql.DB) *Repository {
 }
 
 func (r *Repository) FindUserByUsername(ctx context.Context, username string) (*User, error) {
-	row := r.db.QueryRowContext(ctx, `
+	return r.findUser(ctx, `
 SELECT
 	id, username, display_name, email, role, auth_provider, password_hash, google_sub,
 	status, created_at, updated_at, last_login_at, last_seen_at, expires_at, invited_by_user_id, notes
@@ -29,38 +29,10 @@ FROM users
 WHERE username = $1
 LIMIT 1
 `, username)
-
-	var u User
-	err := row.Scan(
-		&u.ID,
-		&u.Username,
-		&u.DisplayName,
-		&u.Email,
-		&u.Role,
-		&u.AuthProvider,
-		&u.PasswordHash,
-		&u.GoogleSub,
-		&u.Status,
-		&u.CreatedAt,
-		&u.UpdatedAt,
-		&u.LastLoginAt,
-		&u.LastSeenAt,
-		&u.ExpiresAt,
-		&u.InvitedByUserID,
-		&u.Notes,
-	)
-	if err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			return nil, ErrUserNotFound
-		}
-		return nil, err
-	}
-
-	return &u, nil
 }
 
 func (r *Repository) FindUserByID(ctx context.Context, id int64) (*User, error) {
-	row := r.db.QueryRowContext(ctx, `
+	return r.findUser(ctx, `
 SELECT
 	id, username, display_name, email, role, auth_provider, password_hash, google_sub,
 	status, created_at, updated_at, last_login_at, last_seen_at, expires_at, invited_by_user_id, notes
@@ -68,6 +40,32 @@ FROM users
 WHERE id = $1
 LIMIT 1
 `, id)
+}
+
+func (r *Repository) FindUserByEmail(ctx context.Context, email string) (*User, error) {
+	return r.findUser(ctx, `
+SELECT
+	id, username, display_name, email, role, auth_provider, password_hash, google_sub,
+	status, created_at, updated_at, last_login_at, last_seen_at, expires_at, invited_by_user_id, notes
+FROM users
+WHERE email = $1
+LIMIT 1
+`, email)
+}
+
+func (r *Repository) FindUserByGoogleSub(ctx context.Context, sub string) (*User, error) {
+	return r.findUser(ctx, `
+SELECT
+	id, username, display_name, email, role, auth_provider, password_hash, google_sub,
+	status, created_at, updated_at, last_login_at, last_seen_at, expires_at, invited_by_user_id, notes
+FROM users
+WHERE google_sub = $1
+LIMIT 1
+`, sub)
+}
+
+func (r *Repository) findUser(ctx context.Context, query string, arg any) (*User, error) {
+	row := r.db.QueryRowContext(ctx, query, arg)
 
 	var u User
 	err := row.Scan(
@@ -125,6 +123,27 @@ RETURNING id
 		return 0, err
 	}
 	return id, nil
+}
+
+func (r *Repository) LinkGoogleAccount(ctx context.Context, userID int64, googleSub, email string) error {
+	_, err := r.db.ExecContext(ctx, `
+UPDATE users
+SET google_sub = $2, email = COALESCE(email, $3), auth_provider = 'google', updated_at = NOW()
+WHERE id = $1
+`, userID, googleSub, email)
+	if err != nil {
+		return err
+	}
+
+	_, err = r.db.ExecContext(ctx, `
+INSERT INTO oauth_accounts (user_id, provider, provider_sub, email)
+VALUES ($1, 'google', $2, $3)
+ON CONFLICT (provider, provider_sub)
+DO UPDATE SET
+	email = EXCLUDED.email,
+	updated_at = NOW()
+`, userID, googleSub, email)
+	return err
 }
 
 func (r *Repository) UpdateUserLoginTimestamps(ctx context.Context, userID int64, at time.Time) error {

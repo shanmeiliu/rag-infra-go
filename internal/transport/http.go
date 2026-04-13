@@ -17,6 +17,7 @@ type Handler struct {
 	store        vectorstore.Store
 	authCfg      auth.Config
 	authSvc      *auth.Service
+	googleOAuth  *auth.GoogleOAuthClient
 }
 
 func NewHTTPHandler(
@@ -25,6 +26,7 @@ func NewHTTPHandler(
 	store vectorstore.Store,
 	authCfg auth.Config,
 	authSvc *auth.Service,
+	googleOAuth *auth.GoogleOAuthClient,
 ) *Handler {
 	return &Handler{
 		chatSvc:      chatSvc,
@@ -32,18 +34,21 @@ func NewHTTPHandler(
 		store:        store,
 		authCfg:      authCfg,
 		authSvc:      authSvc,
+		googleOAuth:  googleOAuth,
 	}
 }
 
 func (h *Handler) Routes() http.Handler {
 	mux := http.NewServeMux()
 
-	authHandler := NewAuthHandler(h.authCfg, h.authSvc)
+	authHandler := NewAuthHandler(h.authCfg, h.authSvc, h.googleOAuth)
 	requireAuth := auth.AuthMiddleware(h.authCfg, h.authSvc)
 
 	mux.HandleFunc("/healthz", h.health)
 
 	mux.HandleFunc("/api/auth/login", authHandler.Login)
+	mux.HandleFunc("/api/auth/google/start", authHandler.GoogleStart)
+	mux.HandleFunc("/api/auth/google/callback", authHandler.GoogleCallback)
 	mux.Handle("/api/auth/me", requireAuth(http.HandlerFunc(authHandler.Me)))
 	mux.Handle("/api/auth/logout", requireAuth(http.HandlerFunc(authHandler.Logout)))
 
