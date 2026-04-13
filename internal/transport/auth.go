@@ -8,14 +8,16 @@ import (
 )
 
 type AuthHandler struct {
-	cfg auth.Config
-	svc *auth.Service
+	cfg         auth.Config
+	svc         *auth.Service
+	googleOAuth *auth.GoogleOAuthClient
 }
 
-func NewAuthHandler(cfg auth.Config, svc *auth.Service) *AuthHandler {
+func NewAuthHandler(cfg auth.Config, svc *auth.Service, googleOAuth *auth.GoogleOAuthClient) *AuthHandler {
 	return &AuthHandler{
-		cfg: cfg,
-		svc: svc,
+		cfg:         cfg,
+		svc:         svc,
+		googleOAuth: googleOAuth,
 	}
 }
 
@@ -50,15 +52,7 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	http.SetCookie(w, &http.Cookie{
-		Name:     h.cfg.SessionCookieName,
-		Value:    sessionToken,
-		Path:     "/",
-		HttpOnly: true,
-		Secure:   h.cfg.SecureCookies,
-		SameSite: http.SameSiteLaxMode,
-		MaxAge:   int(h.cfg.SessionTTL().Seconds()),
-	})
+	h.setSessionCookie(w, sessionToken)
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
@@ -71,6 +65,59 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 			"auth_provider": user.AuthProvider,
 		},
 	})
+}
+
+func (h *AuthHandler) GoogleStart(w http.ResponseWriter, r *http.Request) {
+	url, err := h.googleOAuth.StartAuth(w, r)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(w, r, url, http.StatusFound)
+}
+
+func (h *AuthHandler) GoogleCallback(w http.ResponseWriter, r *http.Request) {
+	defer auth.ClearOAuthStateCookie(w, h.cfg.SecureCookies)
+
+	if err := auth.ValidateOAuthStateCookie(r, r.URL.Query().Get("state")); err != nil {
+		http.Error(w, err.Error(), http.StatusUnauthorized)
+		return
+	}
+
+	code := r.URL.Query().Get("code")
+	if code == "" {
+		http.Error(w, "missing oauth code", http.StatusBadRequest)
+		return
+	}
+
+	ipAddress := r.RemoteAddr
+	userAgent := r.UserAgent()
+
+	googleUser, err := h.googleOAuth.ExchangeAndFetchUser(r.Context(), code)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusUnauthorized)
+		return
+	}
+
+	user, sessionToken, err := h.svc.LoginWithGoogle(
+		r.Context(),
+		googleUser,
+		&ipAddress,
+		&userAgent,
+	)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusUnauthorized)
+		return
+	}
+
+	h.setSessionCookie(w, sessionToken)
+
+	redirectURL := h.cfg.FrontendPostLoginURL
+	if user.Role == "admin" {
+		redirectURL = h.cfg.FrontendPostLoginURL + "admin"
+	}
+
+	http.Redirect(w, r, redirectURL, http.StatusFound)
 }
 
 func (h *AuthHandler) Logout(w http.ResponseWriter, r *http.Request) {
@@ -114,5 +161,17 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 			"role":          user.Role,
 			"auth_provider": user.AuthProvider,
 		},
+	})
+}
+
+func (h *AuthHandler) setSessionCookie(w http.ResponseWriter, sessionToken string) {
+	http.SetCookie(w, &http.Cookie{
+		Name:     h.cfg.SessionCookieName,
+		Value:    sessionToken,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   h.cfg.SecureCookies,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   int(h.cfg.SessionTTL().Seconds()),
 	})
 }

@@ -15,6 +15,12 @@ type Config struct {
 	SecureCookies          bool
 	LocalRecruiterTTLDays  int
 	GoogleRecruiterTTLDays int
+
+	GoogleClientID       string
+	GoogleClientSecret   string
+	GoogleRedirectURL    string
+	GoogleAllowedDomain  string
+	FrontendPostLoginURL string
 }
 
 func ConfigFromEnv() Config {
@@ -27,6 +33,12 @@ func ConfigFromEnv() Config {
 		SecureCookies:          getEnvBool("SECURE_COOKIES", false),
 		LocalRecruiterTTLDays:  getEnvInt("LOCAL_RECRUITER_TTL_DAYS", 30),
 		GoogleRecruiterTTLDays: getEnvInt("GOOGLE_RECRUITER_TTL_DAYS", 365),
+
+		GoogleClientID:       getEnv("GOOGLE_CLIENT_ID", ""),
+		GoogleClientSecret:   getEnv("GOOGLE_CLIENT_SECRET", ""),
+		GoogleRedirectURL:    getEnv("GOOGLE_REDIRECT_URL", "http://localhost:8080/api/auth/google/callback"),
+		GoogleAllowedDomain:  getEnv("GOOGLE_ALLOWED_DOMAIN", ""),
+		FrontendPostLoginURL: getEnv("FRONTEND_POST_LOGIN_URL", "http://localhost:5173/"),
 	}
 }
 
