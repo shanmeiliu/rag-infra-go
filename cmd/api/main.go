@@ -11,6 +11,7 @@ import (
 	"github.com/shanmeiliu/rag-infra-go/internal/auth"
 	"github.com/shanmeiliu/rag-infra-go/internal/chat"
 	"github.com/shanmeiliu/rag-infra-go/internal/db"
+	"github.com/shanmeiliu/rag-infra-go/internal/httpx"
 	"github.com/shanmeiliu/rag-infra-go/internal/ingestion"
 	"github.com/shanmeiliu/rag-infra-go/internal/memory"
 	"github.com/shanmeiliu/rag-infra-go/internal/providers"
@@ -117,13 +118,17 @@ func main() {
 
 	handler := transport.NewHTTPHandler(chatSvc, ingestionSvc, store, authCfg, authSvc)
 
+	corsCfg := httpx.DefaultCORSConfig()
+	router := httpx.CORSMiddleware(corsCfg)(handler.Routes())
+
 	log.Printf("embedding provider: %s", profile.Provider)
 	log.Printf("embedding model: %s", profile.Model)
 	log.Printf("embedding dimension: %d", profile.Dimension)
 	log.Printf("embedding table: %s", profile.TableName())
 	log.Println("server running on :8080")
 
-	if err := http.ListenAndServe(":8080", handler.Routes()); err != nil {
+	if err := http.ListenAndServe(":8080", router); err != nil {
 		log.Fatalf("server failed: %v", err)
 	}
+}
 }
