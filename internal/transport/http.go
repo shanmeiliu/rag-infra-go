@@ -47,6 +47,7 @@ func (h *Handler) Routes() http.Handler {
 	mux.HandleFunc("/healthz", h.health)
 
 	mux.HandleFunc("/api/auth/login", authHandler.Login)
+	mux.HandleFunc("/api/auth/signup", authHandler.Signup)
 	mux.HandleFunc("/api/auth/google/start", authHandler.GoogleStart)
 	mux.HandleFunc("/api/auth/google/callback", authHandler.GoogleCallback)
 	mux.Handle("/api/auth/me", requireAuth(http.HandlerFunc(authHandler.Me)))

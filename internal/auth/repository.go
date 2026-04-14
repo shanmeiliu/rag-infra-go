@@ -20,6 +20,12 @@ func NewRepository(db *sql.DB) *Repository {
 	return &Repository{db: db}
 }
 
+func (r *Repository) UsernameExists(ctx context.Context, username string) (bool, error) {
+	var exists bool
+	err := r.db.QueryRowContext(ctx, `SELECT EXISTS(SELECT 1 FROM users WHERE username = $1)`, username).Scan(&exists)
+	return exists, err
+}
+
 func (r *Repository) FindUserByUsername(ctx context.Context, username string) (*User, error) {
 	return r.findUser(ctx, `
 SELECT

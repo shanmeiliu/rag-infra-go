@@ -3,6 +3,7 @@ package transport
 import (
 	"encoding/json"
 	"net/http"
+	"strings"
 
 	"github.com/shanmeiliu/rag-infra-go/internal/auth"
 )
@@ -56,14 +57,56 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
-		"user": map[string]any{
-			"id":            user.ID,
-			"username":      user.Username,
-			"display_name":  user.DisplayName,
-			"email":         user.Email,
-			"role":          user.Role,
-			"auth_provider": user.AuthProvider,
-		},
+		"user": serializeUser(user),
+	})
+}
+
+func (h *AuthHandler) Signup(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	var req struct {
+		Password    string  `json:"password"`
+		DisplayName string  `json:"display_name"`
+		Email       *string `json:"email"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if req.Email != nil {
+		trimmed := strings.TrimSpace(*req.Email)
+		req.Email = &trimmed
+		if trimmed == "" {
+			req.Email = nil
+		}
+	}
+
+	ipAddress := r.RemoteAddr
+	userAgent := r.UserAgent()
+
+	user, sessionToken, err := h.svc.SignupRecruiterLocal(
+		r.Context(),
+		req.Password,
+		req.DisplayName,
+		req.Email,
+		&ipAddress,
+		&userAgent,
+	)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	h.setSessionCookie(w, sessionToken)
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"user": serializeUser(user),
 	})
 }
 
@@ -112,9 +155,10 @@ func (h *AuthHandler) GoogleCallback(w http.ResponseWriter, r *http.Request) {
 
 	h.setSessionCookie(w, sessionToken)
 
-	redirectURL := h.cfg.FrontendPostLoginURL
+	redirectBase := strings.TrimRight(h.cfg.FrontendPostLoginURL, "/")
+	redirectURL := redirectBase + "/"
 	if user.Role == "admin" {
-		redirectURL = h.cfg.FrontendPostLoginURL + "admin"
+		redirectURL = redirectBase + "/admin"
 	}
 
 	http.Redirect(w, r, redirectURL, http.StatusFound)
@@ -153,14 +197,7 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]any{
-		"user": map[string]any{
-			"id":            user.ID,
-			"username":      user.Username,
-			"display_name":  user.DisplayName,
-			"email":         user.Email,
-			"role":          user.Role,
-			"auth_provider": user.AuthProvider,
-		},
+		"user": serializeUser(user),
 	})
 }
 
@@ -174,4 +211,15 @@ func (h *AuthHandler) setSessionCookie(w http.ResponseWriter, sessionToken strin
 		SameSite: http.SameSiteLaxMode,
 		MaxAge:   int(h.cfg.SessionTTL().Seconds()),
 	})
+}
+
+func serializeUser(user *auth.User) map[string]any {
+	return map[string]any{
+		"id":            user.ID,
+		"username":      user.Username,
+		"display_name":  user.DisplayName,
+		"email":         user.Email,
+		"role":          user.Role,
+		"auth_provider": user.AuthProvider,
+	}
 }
