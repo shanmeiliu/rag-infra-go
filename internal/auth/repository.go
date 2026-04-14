@@ -26,6 +26,53 @@ func (r *Repository) UsernameExists(ctx context.Context, username string) (bool,
 	return exists, err
 }
 
+func (r *Repository) ListUsers(ctx context.Context, limit int) ([]User, error) {
+	if limit <= 0 {
+		limit = 100
+	}
+
+	rows, err := r.db.QueryContext(ctx, `
+SELECT
+	id, username, display_name, email, role, auth_provider, password_hash, google_sub,
+	status, created_at, updated_at, last_login_at, last_seen_at, expires_at, invited_by_user_id, notes
+FROM users
+ORDER BY created_at DESC
+LIMIT $1
+`, limit)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+
+	var users []User
+	for rows.Next() {
+		var u User
+		if err := rows.Scan(
+			&u.ID,
+			&u.Username,
+			&u.DisplayName,
+			&u.Email,
+			&u.Role,
+			&u.AuthProvider,
+			&u.PasswordHash,
+			&u.GoogleSub,
+			&u.Status,
+			&u.CreatedAt,
+			&u.UpdatedAt,
+			&u.LastLoginAt,
+			&u.LastSeenAt,
+			&u.ExpiresAt,
+			&u.InvitedByUserID,
+			&u.Notes,
+		); err != nil {
+			return nil, err
+		}
+		users = append(users, u)
+	}
+
+	return users, rows.Err()
+}
+
 func (r *Repository) FindUserByUsername(ctx context.Context, username string) (*User, error) {
 	return r.findUser(ctx, `
 SELECT

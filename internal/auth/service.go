@@ -27,6 +27,10 @@ func NewService(cfg Config, repo *Repository) *Service {
 	}
 }
 
+func (s *Service) ListUsers(ctx context.Context, limit int) ([]User, error) {
+	return s.repo.ListUsers(ctx, limit)
+}
+
 func (s *Service) EnsureAdminUser(ctx context.Context) error {
 	if strings.TrimSpace(s.cfg.AdminUsername) == "" || strings.TrimSpace(s.cfg.AdminPassword) == "" {
 		return nil

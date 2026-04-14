@@ -3,6 +3,7 @@ package transport
 import (
 	"encoding/json"
 	"net/http"
+	"strconv"
 	"strings"
 
 	"github.com/shanmeiliu/rag-infra-go/internal/auth"
@@ -201,6 +202,37 @@ func (h *AuthHandler) Me(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+func (h *AuthHandler) ListUsers(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	limit := 100
+	if raw := r.URL.Query().Get("limit"); raw != "" {
+		if parsed, err := strconv.Atoi(raw); err == nil && parsed > 0 {
+			limit = parsed
+		}
+	}
+
+	users, err := h.svc.ListUsers(r.Context(), limit)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	out := make([]map[string]any, 0, len(users))
+	for i := range users {
+		u := users[i]
+		out = append(out, serializeUser(&u))
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"users": out,
+	})
+}
+
 func (h *AuthHandler) setSessionCookie(w http.ResponseWriter, sessionToken string) {
 	http.SetCookie(w, &http.Cookie{
 		Name:     h.cfg.SessionCookieName,
@@ -221,5 +253,10 @@ func serializeUser(user *auth.User) map[string]any {
 		"email":         user.Email,
 		"role":          user.Role,
 		"auth_provider": user.AuthProvider,
+		"status":        user.Status,
+		"created_at":    user.CreatedAt,
+		"last_login_at": user.LastLoginAt,
+		"last_seen_at":  user.LastSeenAt,
+		"expires_at":    user.ExpiresAt,
 	}
 }

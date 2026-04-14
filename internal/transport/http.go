@@ -53,6 +53,8 @@ func (h *Handler) Routes() http.Handler {
 	mux.Handle("/api/auth/me", requireAuth(http.HandlerFunc(authHandler.Me)))
 	mux.Handle("/api/auth/logout", requireAuth(http.HandlerFunc(authHandler.Logout)))
 
+	mux.Handle("/api/admin/users", requireAuth(auth.AdminOnly(http.HandlerFunc(authHandler.ListUsers))))
+
 	mux.Handle("/api/chat", requireAuth(http.HandlerFunc(h.chat)))
 	mux.Handle("/api/chat/stream", requireAuth(http.HandlerFunc(h.chatStream)))
 
