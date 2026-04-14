@@ -5,7 +5,6 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"errors"
-	"fmt"
 	"strings"
 	"time"
 )
@@ -14,6 +13,7 @@ var ErrInvalidCredentials = errors.New("invalid credentials")
 var ErrInactiveUser = errors.New("user is not active")
 var ErrExpiredUser = errors.New("user account expired")
 var ErrGoogleLoginNotAllowed = errors.New("google login is not allowed for this account")
+var ErrPasswordTooShort = errors.New("password must be at least 8 characters")
 
 type Service struct {
 	cfg  Config
@@ -62,6 +62,45 @@ func (s *Service) EnsureAdminUser(ctx context.Context) error {
 	return err
 }
 
+func (s *Service) SignupRecruiterLocal(ctx context.Context, password, displayName string, email *string, ipAddress, userAgent *string) (*User, string, error) {
+	if len(strings.TrimSpace(password)) < 8 {
+		return nil, "", ErrPasswordTooShort
+	}
+
+	username, err := s.generateUniqueRecruiterUsername(ctx)
+	if err != nil {
+		return nil, "", err
+	}
+
+	hash, err := HashPassword(password)
+	if err != nil {
+		return nil, "", err
+	}
+
+	expiresAt := BuildRecruiterExpiry(s.cfg.LocalRecruiterTTLDays)
+
+	userID, err := s.repo.CreateUser(ctx, &User{
+		Username:     username,
+		DisplayName:  strings.TrimSpace(displayName),
+		Email:        email,
+		Role:         "recruiter",
+		AuthProvider: "local",
+		PasswordHash: &hash,
+		Status:       "active",
+		ExpiresAt:    expiresAt,
+	})
+	if err != nil {
+		return nil, "", err
+	}
+
+	user, err := s.repo.FindUserByID(ctx, userID)
+	if err != nil {
+		return nil, "", err
+	}
+
+	return s.createLoginSession(ctx, user, ipAddress, userAgent)
+}
+
 func (s *Service) LoginWithPassword(ctx context.Context, username, password string, ipAddress, userAgent *string) (*User, string, error) {
 	user, err := s.repo.FindUserByUsername(ctx, strings.TrimSpace(username))
 	if err != nil {
@@ -103,13 +142,6 @@ func (s *Service) LoginWithGoogle(ctx context.Context, googleUser *GoogleUserInf
 		}
 
 		if emailErr == nil && userByEmail != nil {
-			if userByEmail.Role != "admin" && userByEmail.Role != "recruiter" {
-				return nil, "", ErrGoogleLoginNotAllowed
-			}
-			if userByEmail.Status != "active" {
-				return nil, "", ErrInactiveUser
-			}
-
 			if err := s.repo.LinkGoogleAccount(ctx, userByEmail.ID, googleUser.Sub, googleUser.Email); err != nil {
 				return nil, "", err
 			}
@@ -119,7 +151,41 @@ func (s *Service) LoginWithGoogle(ctx context.Context, googleUser *GoogleUserInf
 				return nil, "", err
 			}
 		} else {
-			return nil, "", ErrGoogleLoginNotAllowed
+			username, genErr := s.generateUniqueRecruiterUsername(ctx)
+			if genErr != nil {
+				return nil, "", genErr
+			}
+
+			email := googleUser.Email
+			displayName := strings.TrimSpace(googleUser.Name)
+			if displayName == "" {
+				displayName = "Recruiter"
+			}
+			googleSub := googleUser.Sub
+			expiresAt := BuildRecruiterExpiry(s.cfg.GoogleRecruiterTTLDays)
+
+			userID, createErr := s.repo.CreateUser(ctx, &User{
+				Username:     username,
+				DisplayName:  displayName,
+				Email:        &email,
+				Role:         "recruiter",
+				AuthProvider: "google",
+				GoogleSub:    &googleSub,
+				Status:       "active",
+				ExpiresAt:    expiresAt,
+			})
+			if createErr != nil {
+				return nil, "", createErr
+			}
+
+			if linkErr := s.repo.LinkGoogleAccount(ctx, userID, googleSub, email); linkErr != nil {
+				return nil, "", linkErr
+			}
+
+			user, err = s.repo.FindUserByID(ctx, userID)
+			if err != nil {
+				return nil, "", err
+			}
 		}
 	}
 
@@ -182,6 +248,24 @@ func (s *Service) createLoginSession(ctx context.Context, user *User, ipAddress,
 	return user, rawSession, nil
 }
 
+func (s *Service) generateUniqueRecruiterUsername(ctx context.Context) (string, error) {
+	for i := 0; i < 10; i++ {
+		username, err := GenerateRecruiterUsername()
+		if err != nil {
+			return "", err
+		}
+
+		exists, err := s.repo.UsernameExists(ctx, username)
+		if err != nil {
+			return "", err
+		}
+		if !exists {
+			return username, nil
+		}
+	}
+	return "", errors.New("failed to generate unique recruiter username")
+}
+
 func validateUserForLogin(user *User) error {
 	if user.Status != "active" {
 		if user.Status == "expired" {
@@ -209,11 +293,4 @@ func BuildRecruiterExpiry(days int) *time.Time {
 	}
 	t := time.Now().Add(time.Duration(days) * 24 * time.Hour)
 	return &t
-}
-
-func EnsureGoogleConfigured(cfg Config) error {
-	if cfg.GoogleClientID == "" || cfg.GoogleClientSecret == "" {
-		return fmt.Errorf("google oauth is not configured")
-	}
-	return nil
 }
