@@ -114,7 +114,7 @@ func main() {
 	ingestionSvc := ingestion.NewService(embedder, store)
 
 	sourcesRepo := sources.NewRepository(postgresDB)
-	sourcesSvc := sources.NewService(sourcesRepo, ingestionSvc, "./uploads")
+	sourcesSvc := sources.NewService(sourcesRepo, ingestionSvc, store, "./uploads")
 
 	chatSvc := chat.NewService(chat.Dependencies{
 		Rewriter:  rewriter,

@@ -21,19 +21,25 @@ type IngestionService interface {
 	Ingest(ctx context.Context, chunks []ingestion.InputChunk) error
 }
 
+type SourceCleaner interface {
+	DeleteBySourceID(ctx context.Context, sourceID string) error
+}
+
 type Service struct {
 	repo         *Repository
 	ingestionSvc IngestionService
+	cleaner      SourceCleaner
 	uploadDir    string
 }
 
-func NewService(repo *Repository, ingestionSvc IngestionService, uploadDir string) *Service {
+func NewService(repo *Repository, ingestionSvc IngestionService, cleaner SourceCleaner, uploadDir string) *Service {
 	if uploadDir == "" {
 		uploadDir = "./uploads"
 	}
 	return &Service{
 		repo:         repo,
 		ingestionSvc: ingestionSvc,
+		cleaner:      cleaner,
 		uploadDir:    uploadDir,
 	}
 }
@@ -95,6 +101,7 @@ func (s *Service) HandleUploadedFile(
 		Metadata: map[string]any{
 			"filename": filename,
 			"size":     len(contentBytes),
+			"kind":     "upload",
 		},
 		CreatedByUserID: createdBy,
 	}
@@ -107,23 +114,10 @@ func (s *Service) HandleUploadedFile(
 
 	ext := strings.ToLower(filepath.Ext(filename))
 	if ext == ".txt" || ext == ".md" {
-		docID := "source-" + sourceKey
-		chunkID := "chunk-" + sourceKey + "-1"
-
-		err = s.ingestionSvc.Ingest(ctx, []ingestion.InputChunk{
-			{
-				ChunkID: chunkID,
-				DocID:   docID,
-				Content: string(contentBytes),
-				Metadata: map[string]any{
-					"source_group": "notes",
-					"source_type":  sourceType,
-					"source_id":    sourceKey,
-					"filename":     filename,
-				},
-			},
-		})
-		if err != nil {
+		if err := s.ingestContent(ctx, src.SourceKey, src.SourceType, "notes", filename, string(contentBytes), map[string]any{
+			"filename": filename,
+			"kind":     "upload",
+		}); err != nil {
 			return nil, err
 		}
 	}
@@ -155,19 +149,20 @@ func (s *Service) HandleGithubRepo(
 	}
 
 	src := &Source{
-		SourceKey:       sourceKey,
-		Name:            normalizedRepo,
-		SourceType:      sourceType,
-		Status:          "ready",
-		Origin:          &repoURL,
-		CreatedByUserID: createdBy,
+		SourceKey:  sourceKey,
+		Name:       normalizedRepo,
+		SourceType: sourceType,
+		Status:     "ready",
+		Origin:     &repoURL,
 		Metadata: map[string]any{
 			"repo_url":         repoURL,
 			"normalized_repo":  normalizedRepo,
 			"branch":           branch,
 			"include_patterns": includePatterns,
 			"ingested_content": "README",
+			"kind":             "github",
 		},
+		CreatedByUserID: createdBy,
 	}
 
 	id, err := s.repo.Create(ctx, src)
@@ -176,28 +171,126 @@ func (s *Service) HandleGithubRepo(
 	}
 	src.ID = id
 
-	docID := "source-" + sourceKey
-	chunkID := "chunk-" + sourceKey + "-1"
-
-	err = s.ingestionSvc.Ingest(ctx, []ingestion.InputChunk{
-		{
-			ChunkID: chunkID,
-			DocID:   docID,
-			Content: readmeContent,
-			Metadata: map[string]any{
-				"source_group": "repos",
-				"source_type":  sourceType,
-				"source_id":    sourceKey,
-				"repo_url":     repoURL,
-				"repo_name":    normalizedRepo,
-			},
-		},
-	})
-	if err != nil {
+	if err := s.ingestContent(ctx, src.SourceKey, src.SourceType, "repos", normalizedRepo, readmeContent, map[string]any{
+		"repo_url":  repoURL,
+		"repo_name": normalizedRepo,
+		"branch":    branch,
+		"kind":      "github",
+	}); err != nil {
 		return nil, err
 	}
 
 	return src, nil
+}
+
+func (s *Service) SyncSource(ctx context.Context, id int64) (*Source, error) {
+	src, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+
+	if err := s.cleaner.DeleteBySourceID(ctx, src.SourceKey); err != nil {
+		return nil, err
+	}
+
+	kind, _ := src.Metadata["kind"].(string)
+
+	switch kind {
+	case "github":
+		repoURL, _ := src.Metadata["repo_url"].(string)
+		branch, _ := src.Metadata["branch"].(string)
+		readmeContent, normalizedRepo, err := fetchGithubReadme(ctx, repoURL, branch)
+		if err != nil {
+			return nil, err
+		}
+
+		if err := s.ingestContent(ctx, src.SourceKey, src.SourceType, "repos", normalizedRepo, readmeContent, map[string]any{
+			"repo_url":  repoURL,
+			"repo_name": normalizedRepo,
+			"branch":    branch,
+			"kind":      "github",
+		}); err != nil {
+			return nil, err
+		}
+
+	case "upload":
+		if src.FilePath == nil || strings.TrimSpace(*src.FilePath) == "" {
+			return nil, fmt.Errorf("uploaded source has no file path")
+		}
+
+		contentBytes, err := os.ReadFile(*src.FilePath)
+		if err != nil {
+			return nil, err
+		}
+
+		ext := strings.ToLower(filepath.Ext(src.Name))
+		if ext == ".txt" || ext == ".md" {
+			if err := s.ingestContent(ctx, src.SourceKey, src.SourceType, "notes", src.Name, string(contentBytes), map[string]any{
+				"filename": src.Name,
+				"kind":     "upload",
+			}); err != nil {
+				return nil, err
+			}
+		}
+
+	default:
+		return nil, fmt.Errorf("source kind does not support sync")
+	}
+
+	if err := s.repo.TouchUpdatedAt(ctx, id); err != nil {
+		return nil, err
+	}
+
+	return s.repo.GetByID(ctx, id)
+}
+
+func (s *Service) DeleteSource(ctx context.Context, id int64) error {
+	src, err := s.repo.GetByID(ctx, id)
+	if err != nil {
+		return err
+	}
+
+	if err := s.cleaner.DeleteBySourceID(ctx, src.SourceKey); err != nil {
+		return err
+	}
+
+	if src.FilePath != nil && strings.TrimSpace(*src.FilePath) != "" {
+		_ = os.Remove(*src.FilePath)
+	}
+
+	return s.repo.Delete(ctx, id)
+}
+
+func (s *Service) ingestContent(
+	ctx context.Context,
+	sourceID string,
+	sourceType string,
+	sourceGroup string,
+	docName string,
+	content string,
+	extra map[string]any,
+) error {
+	docID := "source-" + sourceID
+	chunkID := "chunk-" + sourceID + "-1"
+
+	metadata := map[string]any{
+		"source_id":    sourceID,
+		"source_group": sourceGroup,
+		"source_type":  sourceType,
+		"doc_name":     docName,
+	}
+	for k, v := range extra {
+		metadata[k] = v
+	}
+
+	return s.ingestionSvc.Ingest(ctx, []ingestion.InputChunk{
+		{
+			ChunkID:  chunkID,
+			DocID:    docID,
+			Content:  content,
+			Metadata: metadata,
+		},
+	})
 }
 
 func fetchGithubReadme(ctx context.Context, repoURL, branch string) (string, string, error) {

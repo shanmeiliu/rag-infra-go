@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"strconv"
+	"strings"
 
 	"github.com/shanmeiliu/rag-infra-go/internal/auth"
 	"github.com/shanmeiliu/rag-infra-go/internal/sources"
@@ -130,4 +131,71 @@ func (h *SourcesHandler) Github(w http.ResponseWriter, r *http.Request) {
 		"message": "github source ingested",
 		"source":  src,
 	})
+}
+
+func (h *SourcesHandler) Sync(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	id, ok := parseSourceID(r.URL.Path, "/api/sources/", "/sync")
+	if !ok {
+		http.Error(w, "invalid source id", http.StatusBadRequest)
+		return
+	}
+
+	src, err := h.svc.SyncSource(r.Context(), id)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"message": "source synced",
+		"source":  src,
+	})
+}
+
+func (h *SourcesHandler) Delete(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodDelete {
+		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		return
+	}
+
+	id, ok := parseSourceID(r.URL.Path, "/api/sources/", "")
+	if !ok {
+		http.Error(w, "invalid source id", http.StatusBadRequest)
+		return
+	}
+
+	if err := h.svc.DeleteSource(r.Context(), id); err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func parseSourceID(path, prefix, suffix string) (int64, bool) {
+	if !strings.HasPrefix(path, prefix) {
+		return 0, false
+	}
+
+	trimmed := strings.TrimPrefix(path, prefix)
+	if suffix != "" {
+		if !strings.HasSuffix(trimmed, suffix) {
+			return 0, false
+		}
+		trimmed = strings.TrimSuffix(trimmed, suffix)
+	}
+	trimmed = strings.Trim(trimmed, "/")
+
+	id, err := strconv.ParseInt(trimmed, 10, 64)
+	if err != nil {
+		return 0, false
+	}
+
+	return id, true
 }

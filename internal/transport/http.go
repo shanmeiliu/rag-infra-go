@@ -63,6 +63,17 @@ func (h *Handler) Routes() http.Handler {
 	mux.Handle("/api/sources", requireAuth(auth.AdminOnly(http.HandlerFunc(sourcesHandler.List))))
 	mux.Handle("/api/sources/upload", requireAuth(auth.AdminOnly(http.HandlerFunc(sourcesHandler.Upload))))
 	mux.Handle("/api/sources/github", requireAuth(auth.AdminOnly(http.HandlerFunc(sourcesHandler.Github))))
+	mux.Handle("/api/sources/", requireAuth(auth.AdminOnly(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodDelete {
+			sourcesHandler.Delete(w, r)
+			return
+		}
+		if r.Method == http.MethodPost && len(r.URL.Path) > len("/api/sources/") && r.URL.Path[len(r.URL.Path)-5:] == "/sync" {
+			sourcesHandler.Sync(w, r)
+			return
+		}
+		http.NotFound(w, r)
+	}))))
 
 	mux.Handle("/api/chat", requireAuth(http.HandlerFunc(h.chat)))
 	mux.Handle("/api/chat/stream", requireAuth(http.HandlerFunc(h.chatStream)))

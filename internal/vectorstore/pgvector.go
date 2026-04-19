@@ -38,7 +38,8 @@ DO UPDATE SET
 	doc_id = EXCLUDED.doc_id,
 	content = EXCLUDED.content,
 	metadata = EXCLUDED.metadata;
-`, ch.ChunkID, ch.DocID, ch.Content, string(metaJSON)); err != nil {
+`,
+			ch.ChunkID, ch.DocID, ch.Content, string(metaJSON)); err != nil {
 			return err
 		}
 
@@ -46,8 +47,7 @@ DO UPDATE SET
 INSERT INTO %s (chunk_id, embedding)
 VALUES ($1, $2::vector)
 ON CONFLICT (chunk_id)
-DO UPDATE SET
-	embedding = EXCLUDED.embedding;
+DO UPDATE SET embedding = EXCLUDED.embedding;
 `, s.profile.TableName())
 
 		if _, err := s.db.ExecContext(ctx, query, ch.ChunkID, toVectorLiteral(ch.Embedding)); err != nil {
@@ -78,7 +78,6 @@ JOIN chunks c ON c.chunk_id = e.chunk_id
 `, s.profile.TableName())
 
 	whereParts := make([]string, 0)
-
 	nextArg := 2
 
 	if docID, ok := filters["doc_id"].(string); ok && strings.TrimSpace(docID) != "" {
@@ -129,7 +128,52 @@ JOIN chunks c ON c.chunk_id = e.chunk_id
 
 func (s *PGVectorStore) DeleteAll(ctx context.Context) error {
 	query := fmt.Sprintf(`TRUNCATE TABLE %s;`, s.profile.TableName())
-	_, err := s.db.ExecContext(ctx, query)
+	if _, err := s.db.ExecContext(ctx, query); err != nil {
+		return err
+	}
+
+	_, err := s.db.ExecContext(ctx, `TRUNCATE TABLE chunks;`)
+	return err
+}
+
+func (s *PGVectorStore) DeleteBySourceID(ctx context.Context, sourceID string) error {
+	if strings.TrimSpace(sourceID) == "" {
+		return fmt.Errorf("sourceID is required")
+	}
+
+	rows, err := s.db.QueryContext(ctx, `
+SELECT chunk_id
+FROM chunks
+WHERE metadata->>'source_id' = $1
+`, sourceID)
+	if err != nil {
+		return err
+	}
+	defer rows.Close()
+
+	var chunkIDs []string
+	for rows.Next() {
+		var chunkID string
+		if err := rows.Scan(&chunkID); err != nil {
+			return err
+		}
+		chunkIDs = append(chunkIDs, chunkID)
+	}
+	if err := rows.Err(); err != nil {
+		return err
+	}
+
+	for _, chunkID := range chunkIDs {
+		query := fmt.Sprintf(`DELETE FROM %s WHERE chunk_id = $1`, s.profile.TableName())
+		if _, err := s.db.ExecContext(ctx, query, chunkID); err != nil {
+			return err
+		}
+	}
+
+	_, err = s.db.ExecContext(ctx, `
+DELETE FROM chunks
+WHERE metadata->>'source_id' = $1
+`, sourceID)
 	return err
 }
 

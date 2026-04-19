@@ -4,8 +4,11 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"time"
 )
+
+var ErrSourceNotFound = errors.New("source not found")
 
 type Source struct {
 	ID              int64          `json:"id"`
@@ -59,6 +62,45 @@ RETURNING id
 	return id, nil
 }
 
+func (r *Repository) GetByID(ctx context.Context, id int64) (*Source, error) {
+	row := r.db.QueryRowContext(ctx, `
+SELECT
+	id, source_key, name, source_type, status, origin, file_path, metadata, created_by_user_id, created_at, updated_at
+FROM sources
+WHERE id = $1
+LIMIT 1
+`, id)
+
+	var s Source
+	var metadataBytes []byte
+
+	err := row.Scan(
+		&s.ID,
+		&s.SourceKey,
+		&s.Name,
+		&s.SourceType,
+		&s.Status,
+		&s.Origin,
+		&s.FilePath,
+		&metadataBytes,
+		&s.CreatedByUserID,
+		&s.CreatedAt,
+		&s.UpdatedAt,
+	)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrSourceNotFound
+		}
+		return nil, err
+	}
+
+	if len(metadataBytes) > 0 {
+		_ = json.Unmarshal(metadataBytes, &s.Metadata)
+	}
+
+	return &s, nil
+}
+
 func (r *Repository) List(ctx context.Context, limit int) ([]Source, error) {
 	if limit <= 0 {
 		limit = 100
@@ -105,4 +147,25 @@ LIMIT $1
 	}
 
 	return out, rows.Err()
+}
+
+func (r *Repository) TouchUpdatedAt(ctx context.Context, id int64) error {
+	_, err := r.db.ExecContext(ctx, `
+UPDATE sources
+SET updated_at = NOW()
+WHERE id = $1
+`, id)
+	return err
+}
+
+func (r *Repository) Delete(ctx context.Context, id int64) error {
+	res, err := r.db.ExecContext(ctx, `DELETE FROM sources WHERE id = $1`, id)
+	if err != nil {
+		return err
+	}
+	affected, err := res.RowsAffected()
+	if err == nil && affected == 0 {
+		return ErrSourceNotFound
+	}
+	return err
 }
