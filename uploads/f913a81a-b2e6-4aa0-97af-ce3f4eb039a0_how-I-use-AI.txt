@@ -1,0 +1,9 @@
+In my day-to-day work, I use AI tools extensively to improve both speed and code quality. For example, I use ChatGPT, GitHub Copilot, and similar LLMs to help design APIs, debug issues, and refactor code. I often paste in error logs or snippets and ask for root cause analysis or better patterns, which significantly reduces debugging time, while Copilot helps with real-time code suggestions as I’m coding.
+
+I also use AI when working with unfamiliar systems. For open-source projects, I use DeepWiki to understand the codebase more quickly. It provides structured, contextual explanations of repositories, which helps me grasp the architecture, data flow, and key components without manually tracing everything. This is especially useful when onboarding onto new projects or integrating external libraries.
+
+In addition, I use AI to refine prompts for LLM-based features and to validate edge cases. I’ve also applied AI directly in projects, such as building RAG-based systems using LangChain and pgvector, and integrating LLM APIs into backend workflows for tasks like summarization and structured data processing.
+
+Outside of work, I maintain personal projects on my GitHub, including a blog platform, a language learning app, and a personal RAG system, where I experiment with new AI tools and rapidly prototype ideas.
+
+Overall, I see AI as a productivity multiplier — it helps me move faster while maintaining a strong focus on correctness and maintainability.
