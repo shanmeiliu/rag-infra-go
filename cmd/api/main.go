@@ -18,6 +18,7 @@ import (
 	"github.com/shanmeiliu/rag-infra-go/internal/rerank"
 	"github.com/shanmeiliu/rag-infra-go/internal/retrieval"
 	"github.com/shanmeiliu/rag-infra-go/internal/rewrite"
+	"github.com/shanmeiliu/rag-infra-go/internal/sources"
 	"github.com/shanmeiliu/rag-infra-go/internal/transport"
 	internalvector "github.com/shanmeiliu/rag-infra-go/internal/vectorstore"
 )
@@ -79,6 +80,9 @@ func main() {
 	if err := db.EnsureAuthSchema(ctx, postgresDB); err != nil {
 		log.Fatalf("failed to ensure auth schema: %v", err)
 	}
+	if err := db.EnsureSourceSchema(ctx, postgresDB); err != nil {
+		log.Fatalf("failed to ensure source schema: %v", err)
+	}
 	if err := db.EnsureEmbeddingTable(ctx, postgresDB, profile, providerCfg.EnableHNSWIndex); err != nil {
 		log.Fatalf("failed to ensure embedding table: %v", err)
 	}
@@ -90,6 +94,7 @@ func main() {
 	authRepo := auth.NewRepository(postgresDB)
 	authSvc := auth.NewService(authCfg, authRepo)
 	googleOAuth := auth.NewGoogleOAuthClient(authCfg)
+
 	if err := authSvc.EnsureAdminUser(ctx); err != nil {
 		log.Fatalf("failed to ensure admin user: %v", err)
 	}
@@ -108,6 +113,9 @@ func main() {
 	memStore := memory.NewInMemoryStore()
 	ingestionSvc := ingestion.NewService(embedder, store)
 
+	sourcesRepo := sources.NewRepository(postgresDB)
+	sourcesSvc := sources.NewService(sourcesRepo, ingestionSvc, "./uploads")
+
 	chatSvc := chat.NewService(chat.Dependencies{
 		Rewriter:  rewriter,
 		Retriever: retriever,
@@ -116,7 +124,7 @@ func main() {
 		Embedder:  embedder,
 	})
 
-	handler := transport.NewHTTPHandler(chatSvc, ingestionSvc, store, authCfg, authSvc, googleOAuth)
+	handler := transport.NewHTTPHandler(chatSvc, ingestionSvc, store, authCfg, authSvc, googleOAuth, sourcesSvc)
 
 	corsCfg := httpx.DefaultCORSConfig()
 	router := httpx.CORSMiddleware(corsCfg)(handler.Routes())

@@ -8,6 +8,7 @@ import (
 	"github.com/shanmeiliu/rag-infra-go/internal/auth"
 	"github.com/shanmeiliu/rag-infra-go/internal/chat"
 	"github.com/shanmeiliu/rag-infra-go/internal/ingestion"
+	"github.com/shanmeiliu/rag-infra-go/internal/sources"
 	"github.com/shanmeiliu/rag-infra-go/pkg/vectorstore"
 )
 
@@ -18,6 +19,7 @@ type Handler struct {
 	authCfg      auth.Config
 	authSvc      *auth.Service
 	googleOAuth  *auth.GoogleOAuthClient
+	sourcesSvc   *sources.Service
 }
 
 func NewHTTPHandler(
@@ -27,6 +29,7 @@ func NewHTTPHandler(
 	authCfg auth.Config,
 	authSvc *auth.Service,
 	googleOAuth *auth.GoogleOAuthClient,
+	sourcesSvc *sources.Service,
 ) *Handler {
 	return &Handler{
 		chatSvc:      chatSvc,
@@ -35,6 +38,7 @@ func NewHTTPHandler(
 		authCfg:      authCfg,
 		authSvc:      authSvc,
 		googleOAuth:  googleOAuth,
+		sourcesSvc:   sourcesSvc,
 	}
 }
 
@@ -43,6 +47,7 @@ func (h *Handler) Routes() http.Handler {
 
 	authHandler := NewAuthHandler(h.authCfg, h.authSvc, h.googleOAuth)
 	requireAuth := auth.AuthMiddleware(h.authCfg, h.authSvc)
+	sourcesHandler := NewSourcesHandler(h.sourcesSvc)
 
 	mux.HandleFunc("/healthz", h.health)
 
@@ -54,6 +59,10 @@ func (h *Handler) Routes() http.Handler {
 	mux.Handle("/api/auth/logout", requireAuth(http.HandlerFunc(authHandler.Logout)))
 
 	mux.Handle("/api/admin/users", requireAuth(auth.AdminOnly(http.HandlerFunc(authHandler.ListUsers))))
+
+	mux.Handle("/api/sources", requireAuth(auth.AdminOnly(http.HandlerFunc(sourcesHandler.List))))
+	mux.Handle("/api/sources/upload", requireAuth(auth.AdminOnly(http.HandlerFunc(sourcesHandler.Upload))))
+	mux.Handle("/api/sources/github", requireAuth(auth.AdminOnly(http.HandlerFunc(sourcesHandler.Github))))
 
 	mux.Handle("/api/chat", requireAuth(http.HandlerFunc(h.chat)))
 	mux.Handle("/api/chat/stream", requireAuth(http.HandlerFunc(h.chatStream)))
