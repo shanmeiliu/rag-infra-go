@@ -85,6 +85,11 @@ func (s *Service) HandleUploadedFile(
 		return nil, err
 	}
 
+	extractedText, parserName, err := ExtractText(filename, contentBytes)
+	if err != nil {
+		return nil, err
+	}
+
 	originValue := "upload"
 	var createdBy *int64
 	if user != nil {
@@ -99,9 +104,11 @@ func (s *Service) HandleUploadedFile(
 		Origin:     &originValue,
 		FilePath:   stringPtr(targetPath),
 		Metadata: map[string]any{
-			"filename": filename,
-			"size":     len(contentBytes),
-			"kind":     "upload",
+			"filename":             filename,
+			"size":                 len(contentBytes),
+			"kind":                 "upload",
+			"parser":               parserName,
+			"extracted_char_count": len(extractedText),
 		},
 		CreatedByUserID: createdBy,
 	}
@@ -112,11 +119,12 @@ func (s *Service) HandleUploadedFile(
 	}
 	src.ID = id
 
-	ext := strings.ToLower(filepath.Ext(filename))
-	if ext == ".txt" || ext == ".md" {
-		if err := s.ingestContent(ctx, src.SourceKey, src.SourceType, "notes", filename, string(contentBytes), map[string]any{
-			"filename": filename,
-			"kind":     "upload",
+	if strings.TrimSpace(extractedText) != "" {
+		if err := s.ingestChunkedContent(ctx, src.SourceKey, src.SourceType, "notes", filename, extractedText, map[string]any{
+			"filename":             filename,
+			"kind":                 "upload",
+			"parser":               parserName,
+			"extracted_char_count": len(extractedText),
 		}); err != nil {
 			return nil, err
 		}
@@ -171,7 +179,7 @@ func (s *Service) HandleGithubRepo(
 	}
 	src.ID = id
 
-	if err := s.ingestContent(ctx, src.SourceKey, src.SourceType, "repos", normalizedRepo, readmeContent, map[string]any{
+	if err := s.ingestChunkedContent(ctx, src.SourceKey, src.SourceType, "repos", normalizedRepo, readmeContent, map[string]any{
 		"repo_url":  repoURL,
 		"repo_name": normalizedRepo,
 		"branch":    branch,
@@ -204,7 +212,7 @@ func (s *Service) SyncSource(ctx context.Context, id int64) (*Source, error) {
 			return nil, err
 		}
 
-		if err := s.ingestContent(ctx, src.SourceKey, src.SourceType, "repos", normalizedRepo, readmeContent, map[string]any{
+		if err := s.ingestChunkedContent(ctx, src.SourceKey, src.SourceType, "repos", normalizedRepo, readmeContent, map[string]any{
 			"repo_url":  repoURL,
 			"repo_name": normalizedRepo,
 			"branch":    branch,
@@ -223,11 +231,17 @@ func (s *Service) SyncSource(ctx context.Context, id int64) (*Source, error) {
 			return nil, err
 		}
 
-		ext := strings.ToLower(filepath.Ext(src.Name))
-		if ext == ".txt" || ext == ".md" {
-			if err := s.ingestContent(ctx, src.SourceKey, src.SourceType, "notes", src.Name, string(contentBytes), map[string]any{
-				"filename": src.Name,
-				"kind":     "upload",
+		extractedText, parserName, err := ExtractText(src.Name, contentBytes)
+		if err != nil {
+			return nil, err
+		}
+
+		if strings.TrimSpace(extractedText) != "" {
+			if err := s.ingestChunkedContent(ctx, src.SourceKey, src.SourceType, "notes", src.Name, extractedText, map[string]any{
+				"filename":             src.Name,
+				"kind":                 "upload",
+				"parser":               parserName,
+				"extracted_char_count": len(extractedText),
 			}); err != nil {
 				return nil, err
 			}
@@ -261,7 +275,7 @@ func (s *Service) DeleteSource(ctx context.Context, id int64) error {
 	return s.repo.Delete(ctx, id)
 }
 
-func (s *Service) ingestContent(
+func (s *Service) ingestChunkedContent(
 	ctx context.Context,
 	sourceID string,
 	sourceType string,
@@ -270,27 +284,42 @@ func (s *Service) ingestContent(
 	content string,
 	extra map[string]any,
 ) error {
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return nil
+	}
+
+	chunks := ChunkText(content, 1800)
+	if len(chunks) == 0 {
+		return nil
+	}
+
 	docID := "source-" + sourceID
-	chunkID := "chunk-" + sourceID + "-1"
+	inputs := make([]ingestion.InputChunk, 0, len(chunks))
 
-	metadata := map[string]any{
-		"source_id":    sourceID,
-		"source_group": sourceGroup,
-		"source_type":  sourceType,
-		"doc_name":     docName,
-	}
-	for k, v := range extra {
-		metadata[k] = v
-	}
+	for i, chunk := range chunks {
+		chunkID := fmt.Sprintf("chunk-%s-%d", sourceID, i+1)
+		metadata := map[string]any{
+			"source_id":    sourceID,
+			"source_group": sourceGroup,
+			"source_type":  sourceType,
+			"doc_name":     docName,
+			"chunk_index":  i + 1,
+			"chunk_count":  len(chunks),
+		}
+		for k, v := range extra {
+			metadata[k] = v
+		}
 
-	return s.ingestionSvc.Ingest(ctx, []ingestion.InputChunk{
-		{
+		inputs = append(inputs, ingestion.InputChunk{
 			ChunkID:  chunkID,
 			DocID:    docID,
-			Content:  content,
+			Content:  chunk,
 			Metadata: metadata,
-		},
-	})
+		})
+	}
+
+	return s.ingestionSvc.Ingest(ctx, inputs)
 }
 
 func fetchGithubReadme(ctx context.Context, repoURL, branch string) (string, string, error) {
