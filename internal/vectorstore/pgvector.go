@@ -88,6 +88,30 @@ JOIN chunks c ON c.chunk_id = e.chunk_id
 
 	if metadataRaw, ok := filters["metadata"].(map[string]any); ok {
 		for k, v := range metadataRaw {
+			if k == "source_groups" {
+				groups := normalizeStringSlice(v)
+				if len(groups) > 0 {
+					placeholders := make([]string, 0, len(groups))
+					for _, group := range groups {
+						placeholders = append(placeholders, fmt.Sprintf("$%d", nextArg))
+						args = append(args, group)
+						nextArg++
+					}
+					whereParts = append(whereParts, fmt.Sprintf("c.metadata->>'source_group' IN (%s)", strings.Join(placeholders, ",")))
+				}
+				continue
+			}
+
+			if k == "source_group" {
+				group := strings.TrimSpace(fmt.Sprintf("%v", v))
+				if group != "" {
+					whereParts = append(whereParts, fmt.Sprintf("c.metadata->>'source_group' = $%d", nextArg))
+					args = append(args, group)
+					nextArg++
+				}
+				continue
+			}
+
 			whereParts = append(whereParts, fmt.Sprintf("c.metadata->>'%s' = $%d", escapeSQLIdentifierLike(k), nextArg))
 			args = append(args, fmt.Sprintf("%v", v))
 			nextArg++
@@ -175,6 +199,36 @@ DELETE FROM chunks
 WHERE metadata->>'source_id' = $1
 `, sourceID)
 	return err
+}
+
+func normalizeStringSlice(v any) []string {
+	var out []string
+
+	switch raw := v.(type) {
+	case []string:
+		for _, item := range raw {
+			item = strings.TrimSpace(item)
+			if item != "" {
+				out = append(out, item)
+			}
+		}
+	case []any:
+		for _, item := range raw {
+			s := strings.TrimSpace(fmt.Sprintf("%v", item))
+			if s != "" {
+				out = append(out, s)
+			}
+		}
+	case string:
+		for _, item := range strings.Split(raw, ",") {
+			item = strings.TrimSpace(item)
+			if item != "" {
+				out = append(out, item)
+			}
+		}
+	}
+
+	return out
 }
 
 func toVectorLiteral(v []float32) string {
