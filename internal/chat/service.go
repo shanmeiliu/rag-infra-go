@@ -97,6 +97,7 @@ func (s *Service) Ask(ctx context.Context, req Request) (*Response, error) {
 	}
 
 	prompt := buildPrompt(rewritten, docs, history)
+
 	answer, err := s.llm.Generate(ctx, prompt)
 	if err != nil {
 		return nil, err
@@ -192,20 +193,48 @@ func (s *Service) Stream(ctx context.Context, req Request) (<-chan string, error
 
 func buildPrompt(query string, docs []Document, history []memory.Message) string {
 	var b strings.Builder
-	b.WriteString("You are a helpful RAG assistant.\n\n")
-	b.WriteString("Query:\n")
-	b.WriteString(query)
-	b.WriteString("\n\nRelevant context:\n")
 
-	for i, doc := range docs {
-		b.WriteString("- [")
-		b.WriteString(doc.Source)
-		b.WriteString("] ")
-		b.WriteString(doc.Content)
-		if i < len(docs)-1 {
+	b.WriteString("You are Charmaine Cat, Charmaine's personal assistant.\n")
+	b.WriteString("You answer recruiters, HR, hiring managers, and interviewers on Charmaine's behalf.\n")
+	b.WriteString("When the user says 'she' or 'her', they are referring to Charmaine.\n")
+	b.WriteString("Use the retrieved context as your primary source of truth.\n")
+	b.WriteString("Do not ask the user to paste context. If context is weak, say what you can based on the available retrieved material and mention that the knowledge base may need more data.\n")
+	b.WriteString("Keep answers professional, specific, and recruiter-friendly.\n\n")
+
+	if len(history) > 0 {
+		b.WriteString("Conversation history:\n")
+		for _, msg := range history {
+			b.WriteString("- ")
+			b.WriteString(msg.Role)
+			b.WriteString(": ")
+			b.WriteString(msg.Content)
 			b.WriteString("\n")
 		}
+		b.WriteString("\n")
 	}
+
+	b.WriteString("User question:\n")
+	b.WriteString(query)
+	b.WriteString("\n\n")
+
+	b.WriteString("Retrieved knowledge base context:\n")
+	if len(docs) == 0 {
+		b.WriteString("No relevant chunks were retrieved from the knowledge base for this question.\n")
+	} else {
+		for i, doc := range docs {
+			b.WriteString("\n[")
+			b.WriteString(doc.Source)
+			b.WriteString(" / ")
+			b.WriteString(doc.ID)
+			b.WriteString("]\n")
+			b.WriteString(doc.Content)
+			if i < len(docs)-1 {
+				b.WriteString("\n")
+			}
+		}
+	}
+
+	b.WriteString("\n\nAnswer as Charmaine Cat:\n")
 
 	return b.String()
 }

@@ -1,0 +1,26 @@
+Q: Which AI or dev-productivity tool have you found most valuable lately, and how do you use it?
+
+
+A: One of the most valuable tools for me lately has been GitHub Copilot, combined with ChatGPT. Copilot helps me stay in flow while coding by suggesting patterns, reducing repetitive work, and speeding up implementation.
+
+I use ChatGPT more for higher-level tasks — debugging issues, designing APIs, and thinking through edge cases. For example, when building backend services, I’ll paste in error logs or snippets to quickly identify root causes or explore better approaches.
+
+Together, they’ve significantly improved my throughput by letting me focus more on system design and problem-solving rather than boilerplate or trial-and-error debugging.
+
+
+ I also use tools like LangChain and Ollama when building AI features, but for day-to-day productivity, Copilot and ChatGPT have had the biggest impact.
+
+
+
+
+Q:Tell us about the project you’re proudest of completing (work or personal). What challenge did it address, and what was your role in making it successful?
+
+A: One project I’m most proud of is a retrieval-augmented generation (RAG) backend service I built as a personal project. The goal was to improve how users get context-aware answers from custom data, instead of relying on generic LLM responses.
+
+The main challenge was ensuring the system returned relevant and consistent results. Early on, the retrieval step wasn’t always surfacing the right context, which led to weaker outputs. To address this, I implemented document chunking, tuned top-k retrieval, and added basic reranking and metadata filtering to improve relevance.
+
+My role was end-to-end — I designed the architecture, built the APIs in Go, integrated PostgreSQL with pgvector for vector search, and connected it to LLM APIs for response generation. I also experimented with running models locally using Ollama to explore latency and cost tradeoffs.
+
+What made it successful was iterating quickly based on results and improving the system’s accuracy and flexibility. It gave me hands-on experience with building practical AI systems and understanding how backend design and data quality directly impact outcomes.
+
+

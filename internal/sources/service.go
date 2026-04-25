@@ -90,7 +90,9 @@ func (s *Service) HandleUploadedFile(
 		return nil, err
 	}
 
+	sourceGroup := sourceGroupForType(sourceType)
 	originValue := "upload"
+
 	var createdBy *int64
 	if user != nil {
 		createdBy = &user.ID
@@ -108,6 +110,7 @@ func (s *Service) HandleUploadedFile(
 			"size":                 len(contentBytes),
 			"kind":                 "upload",
 			"parser":               parserName,
+			"source_group":         sourceGroup,
 			"extracted_char_count": len(extractedText),
 		},
 		CreatedByUserID: createdBy,
@@ -120,7 +123,7 @@ func (s *Service) HandleUploadedFile(
 	src.ID = id
 
 	if strings.TrimSpace(extractedText) != "" {
-		if err := s.ingestChunkedContent(ctx, src.SourceKey, src.SourceType, "notes", filename, extractedText, map[string]any{
+		if err := s.ingestChunkedContent(ctx, src.SourceKey, src.SourceType, sourceGroup, filename, extractedText, map[string]any{
 			"filename":             filename,
 			"kind":                 "upload",
 			"parser":               parserName,
@@ -151,6 +154,8 @@ func (s *Service) HandleGithubRepo(
 	}
 
 	sourceKey := uuid.NewString()
+	sourceGroup := sourceGroupForType(sourceType)
+
 	var createdBy *int64
 	if user != nil {
 		createdBy = &user.ID
@@ -169,6 +174,7 @@ func (s *Service) HandleGithubRepo(
 			"include_patterns": includePatterns,
 			"ingested_content": "README",
 			"kind":             "github",
+			"source_group":     sourceGroup,
 		},
 		CreatedByUserID: createdBy,
 	}
@@ -179,7 +185,7 @@ func (s *Service) HandleGithubRepo(
 	}
 	src.ID = id
 
-	if err := s.ingestChunkedContent(ctx, src.SourceKey, src.SourceType, "repos", normalizedRepo, readmeContent, map[string]any{
+	if err := s.ingestChunkedContent(ctx, src.SourceKey, src.SourceType, sourceGroup, normalizedRepo, readmeContent, map[string]any{
 		"repo_url":  repoURL,
 		"repo_name": normalizedRepo,
 		"branch":    branch,
@@ -202,17 +208,19 @@ func (s *Service) SyncSource(ctx context.Context, id int64) (*Source, error) {
 	}
 
 	kind, _ := src.Metadata["kind"].(string)
+	sourceGroup := sourceGroupForType(src.SourceType)
 
 	switch kind {
 	case "github":
 		repoURL, _ := src.Metadata["repo_url"].(string)
 		branch, _ := src.Metadata["branch"].(string)
+
 		readmeContent, normalizedRepo, err := fetchGithubReadme(ctx, repoURL, branch)
 		if err != nil {
 			return nil, err
 		}
 
-		if err := s.ingestChunkedContent(ctx, src.SourceKey, src.SourceType, "repos", normalizedRepo, readmeContent, map[string]any{
+		if err := s.ingestChunkedContent(ctx, src.SourceKey, src.SourceType, sourceGroup, normalizedRepo, readmeContent, map[string]any{
 			"repo_url":  repoURL,
 			"repo_name": normalizedRepo,
 			"branch":    branch,
@@ -237,7 +245,7 @@ func (s *Service) SyncSource(ctx context.Context, id int64) (*Source, error) {
 		}
 
 		if strings.TrimSpace(extractedText) != "" {
-			if err := s.ingestChunkedContent(ctx, src.SourceKey, src.SourceType, "notes", src.Name, extractedText, map[string]any{
+			if err := s.ingestChunkedContent(ctx, src.SourceKey, src.SourceType, sourceGroup, src.Name, extractedText, map[string]any{
 				"filename":             src.Name,
 				"kind":                 "upload",
 				"parser":               parserName,
@@ -299,6 +307,7 @@ func (s *Service) ingestChunkedContent(
 
 	for i, chunk := range chunks {
 		chunkID := fmt.Sprintf("chunk-%s-%d", sourceID, i+1)
+
 		metadata := map[string]any{
 			"source_id":    sourceID,
 			"source_group": sourceGroup,
@@ -307,6 +316,7 @@ func (s *Service) ingestChunkedContent(
 			"chunk_index":  i + 1,
 			"chunk_count":  len(chunks),
 		}
+
 		for k, v := range extra {
 			metadata[k] = v
 		}
@@ -320,6 +330,21 @@ func (s *Service) ingestChunkedContent(
 	}
 
 	return s.ingestionSvc.Ingest(ctx, inputs)
+}
+
+func sourceGroupForType(sourceType string) string {
+	switch strings.TrimSpace(sourceType) {
+	case "resume":
+		return "resume"
+	case "github_repo", "portfolio_project", "technical_project":
+		return "repos"
+	case "job_description", "job-desc":
+		return "job-desc"
+	case "notes", "document":
+		return "notes"
+	default:
+		return "notes"
+	}
 }
 
 func fetchGithubReadme(ctx context.Context, repoURL, branch string) (string, string, error) {
