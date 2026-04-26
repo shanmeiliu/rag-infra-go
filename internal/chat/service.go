@@ -3,6 +3,7 @@ package chat
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 
 	"github.com/shanmeiliu/rag-infra-go/internal/memory"
@@ -95,6 +96,12 @@ func (s *Service) Ask(ctx context.Context, req Request) (*Response, error) {
 	if err != nil {
 		return nil, err
 	}
+	fmt.Println("==== RETRIEVED DOCS ====")
+	fmt.Println("Query:", rewritten)
+	fmt.Println("Num docs:", len(docs))
+	// for i, d := range docs {
+	// 	fmt.Printf("[%d] %s\n%s\n\n", i, d.Source, d.Content)
+	// }
 
 	prompt := buildPrompt(rewritten, docs, history)
 

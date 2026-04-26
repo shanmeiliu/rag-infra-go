@@ -1,8 +1,67 @@
 package sources
 
-import "strings"
+import (
+	"regexp"
+	"strings"
+)
+
+var qStartRe = regexp.MustCompile(`(?m)^\s*Q\s*:`)
 
 func ChunkText(text string, maxChars int) []string {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return nil
+	}
+
+	if chunks := chunkQAText(text, maxChars); len(chunks) > 0 {
+		return chunks
+	}
+
+	return chunkGenericText(text, maxChars)
+}
+
+func chunkQAText(text string, maxChars int) []string {
+	if maxChars <= 0 {
+		maxChars = 1800
+	}
+
+	indexes := qStartRe.FindAllStringIndex(text, -1)
+	if len(indexes) < 2 {
+		return nil
+	}
+
+	var chunks []string
+
+	for i, idx := range indexes {
+		start := idx[0]
+		end := len(text)
+		if i+1 < len(indexes) {
+			end = indexes[i+1][0]
+		}
+
+		part := strings.TrimSpace(text[start:end])
+		part = strings.Trim(part, "-_ \n\t")
+
+		if part == "" {
+			continue
+		}
+
+		if !strings.Contains(strings.ToLower(part), "a:") {
+			continue
+		}
+
+		if len(part) <= maxChars {
+			chunks = append(chunks, part)
+			continue
+		}
+
+		chunks = append(chunks, chunkGenericText(part, maxChars)...)
+	}
+
+	return chunks
+}
+
+func chunkGenericText(text string, maxChars int) []string {
 	text = strings.TrimSpace(text)
 	if text == "" {
 		return nil

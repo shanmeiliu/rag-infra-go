@@ -1,0 +1,110 @@
+Q:Why are you looking for a new position?
+
+A:I’ve gained solid experience in my current role, especially in backend development and data-driven systems, and I’m now looking for an opportunity to continue growing by working on more complex applications and collaborating with a strong engineering team.
+
+
+----
+Q: What is your current location? 
+
+A: Markham, Ontario, Canada
+----
+Q: Are you authorized to work lawfully in Canada for anyone?
+
+
+A: Yes, I am a Canadian citizen and fully authorized to work in Canada
+___
+Q: What are your salary expectations per year? 
+
+A:Open to discussion; targeting a competitive range based on market and role scope
+
+----
+Q: Are you open to full-time employment? 
+
+A: Yes, I am open to full-time employment
+
+----
+Q: How do you use AI coding tools (Claude Code, Codex, Cursor, etc.) in your daily workflow? Give a concrete example of how it changed your throughput on a real task
+
+A: I use AI coding tools like ChatGPT, GitHub Copilot, and local models via Ollama as part of my daily workflow, mainly to speed up iteration and reduce context-switching.
+
+A concrete example was when I was building a RAG backend service. Normally, setting up the pipeline — embedding generation, retrieval logic, API endpoints, and test cases — would take a few days. Using Copilot and ChatGPT, I was able to scaffold the API structure, generate initial retrieval logic, and draft test cases much faster.
+
+For instance, I used ChatGPT to help design the retrieval flow and edge cases, and Copilot to accelerate implementation while coding. I also pasted in intermediate errors and logs to quickly debug issues and refine the pipeline.
+
+Overall, it reduced the time to a working prototype from a few days to about a day, and allowed me to spend more time on higher-value work like tuning retrieval quality and improving system design rather than writing repetitive code.
+
+----
+Q: To help us better understand your experience, please briefly describe 2-3 apps or specific features that you've built recently. If you've built apps and/or features for non-technical power users, we'd love to hear about those.
+
+
+A:Recently, I’ve worked on a few applications and features focused on data and AI-driven workflows.
+
+One is a RAG-based backend service where I built APIs for embedding, retrieval using PostgreSQL with pgvector, and LLM-based response generation. It was designed to provide context-aware answers from custom data and improve workflows like summarization and search.
+
+I also built a language learning app where I integrated AI to generate multiple-choice questions and alternative answers dynamically. The goal was to create a more interactive learning experience while caching results to improve performance and user experience.
+
+In addition, I developed a blog platform that renders Markdown content with features like search and tagging. While it’s more frontend-focused, it emphasizes usability and content organization for non-technical users.
+
+Across these projects, I focused on building practical features end-to-end, making sure they are usable, reliable, and easy to extend.
+
+----
+Q: Which AI or dev-productivity tool have you found most valuable lately, and how do you use it?
+
+
+A: One of the most valuable tools for me lately has been GitHub Copilot, combined with ChatGPT. Copilot helps me stay in flow while coding by suggesting patterns, reducing repetitive work, and speeding up implementation.
+
+I use ChatGPT more for higher-level tasks — debugging issues, designing APIs, and thinking through edge cases. For example, when building backend services, I’ll paste in error logs or snippets to quickly identify root causes or explore better approaches.
+
+Together, they’ve significantly improved my throughput by letting me focus more on system design and problem-solving rather than boilerplate or trial-and-error debugging.
+
+I also use tools like LangChain and Ollama when building AI features, but for day-to-day productivity, Copilot and ChatGPT have had the biggest impact.
+
+
+
+----
+Q:Tell us about the project you’re proudest of completing (work or personal). What challenge did it address, and what was your role in making it successful?
+
+A: One project I’m most proud of is a retrieval-augmented generation (RAG) backend service I built as a personal project. The goal was to improve how users get context-aware answers from custom data, instead of relying on generic LLM responses.
+
+The main challenge was ensuring the system returned relevant and consistent results. Early on, the retrieval step wasn’t always surfacing the right context, which led to weaker outputs. To address this, I implemented document chunking, tuned top-k retrieval, and added basic reranking and metadata filtering to improve relevance.
+
+My role was end-to-end — I designed the architecture, built the APIs in Go, integrated PostgreSQL with pgvector for vector search, and connected it to LLM APIs for response generation. I also experimented with running models locally using Ollama to explore latency and cost tradeoffs.
+
+What made it successful was iterating quickly based on results and improving the system’s accuracy and flexibility. It gave me hands-on experience with building practical AI systems and understanding how backend design and data quality directly impact outcomes.
+
+
+----
+Q: Can you describe in 2-5 sentences a production AI/LLM system you personally built or significantly contributed to. What broke or performed poorly after launch, and how did you diagnose and fix it?
+
+A: I built a RAG-based backend service that used PostgreSQL with pgvector for retrieval and LLM APIs for response generation. After launch, response quality was inconsistent because the retrieval step often returned weak or irrelevant context. I diagnosed this by logging retrieved chunks and comparing them with outputs, which showed issues with chunking and top-k selection. I fixed it by improving chunking strategy, adding metadata filtering and light reranking, which significantly improved accuracy and consistency.
+
+----
+Q: What experience do you have developing and maintaining libraries and tools using Python and/or JavaScript? Please elaborate.
+
+A: I have experience developing and maintaining reusable backend components and tooling in both Python and JavaScript, primarily focused on improving consistency and developer productivity.
+
+In Python, I’ve built modular services and helper libraries around common patterns such as API integrations, data processing, and database access using frameworks like FastAPI and Django. I’ve structured code into reusable modules (e.g., service layers, utilities, shared clients) to standardize how different parts of the system interact with external APIs and data sources.
+
+In JavaScript/Node.js, I’ve worked with Express to build APIs and shared middleware for tasks like request validation, error handling, and logging, helping maintain consistency across services.
+
+I’ve also developed internal tooling to support workflows such as reporting pipelines and AI-assisted processing, where I created reusable wrappers for LLM API calls and data transformation logic. I focus on writing maintainable, well-documented code with clear interfaces, and I’ve contributed to code reviews and testing to ensure reliability over time.
+
+----
+Q: Please describe the extent of your Django experience, provide as much detail as possible.
+
+A: I have solid working experience with Django, primarily in building backend services and data-driven web applications. I’ve used Django and Django REST Framework to design and implement RESTful APIs, including defining models, serializers, and views, and structuring projects following best practices.
+
+I’ve worked with Django ORM for database interactions, writing queries, optimizing performance, and handling relationships between models. I’m familiar with authentication and authorization mechanisms, including session-based auth and token-based approaches.
+
+I’ve also handled common backend concerns such as input validation, error handling, and API versioning. In some cases, I integrated Django services with external APIs and data pipelines for reporting and automation use cases.
+
+While I’ve used Django in production features, my experience also extends to other frameworks like FastAPI and Flask, so I’m comfortable adapting patterns across frameworks and choosing the right tool depending on the use case.
+
+----
+Q: When you’re working in an unfamiliar codebase, how do you get your bearings and start contributing effectively?
+
+A: When I start in an unfamiliar codebase, I first try to understand the overall architecture — how services are structured, how data flows, and how components interact. I usually begin by running the application locally and tracing a simple request end-to-end to see how different parts connect.
+
+I also review key entry points, configuration files, and a few representative features to understand common patterns. If documentation is available, I use that, but I also rely on reading code and commit history to fill gaps.
+
+To contribute effectively, I start with small tasks or bug fixes to get familiar with the workflow, then gradually take on more complex changes once I’m comfortable with the system and conventions.
