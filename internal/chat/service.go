@@ -25,9 +25,10 @@ type MemoryStore interface {
 }
 
 type Document struct {
-	ID      string `json:"id"`
-	Content string `json:"content"`
-	Source  string `json:"source"`
+	ID       string         `json:"id"`
+	Content  string         `json:"content"`
+	Source   string         `json:"source"`
+	Metadata map[string]any `json:"metadata,omitempty"`
 }
 
 type Dependencies struct {
@@ -96,12 +97,6 @@ func (s *Service) Ask(ctx context.Context, req Request) (*Response, error) {
 	if err != nil {
 		return nil, err
 	}
-	fmt.Println("==== RETRIEVED DOCS ====")
-	fmt.Println("Query:", rewritten)
-	fmt.Println("Num docs:", len(docs))
-	// for i, d := range docs {
-	// 	fmt.Printf("[%d] %s\n%s\n\n", i, d.Source, d.Content)
-	// }
 
 	prompt := buildPrompt(rewritten, docs, history)
 
@@ -110,19 +105,16 @@ func (s *Service) Ask(ctx context.Context, req Request) (*Response, error) {
 		return nil, err
 	}
 
-	if err := s.memory.Save(ctx, req.SessionID, memory.Message{
+	answer = appendCitationHint(answer, docs)
+
+	_ = s.memory.Save(ctx, req.SessionID, memory.Message{
 		Role:    "user",
 		Content: req.Query,
-	}); err != nil {
-		return nil, err
-	}
-
-	if err := s.memory.Save(ctx, req.SessionID, memory.Message{
+	})
+	_ = s.memory.Save(ctx, req.SessionID, memory.Message{
 		Role:    "assistant",
 		Content: answer,
-	}); err != nil {
-		return nil, err
-	}
+	})
 
 	return &Response{
 		RewrittenQuery: rewritten,
@@ -159,6 +151,12 @@ func (s *Service) Stream(ctx context.Context, req Request) (<-chan string, error
 	if err != nil {
 		return nil, err
 	}
+	fmt.Println("==== RETRIEVED DOCS ====")
+	fmt.Println("Query:", rewritten)
+	fmt.Println("Num docs:", len(docs))
+	// for i, d := range docs {
+	// 	fmt.Printf("[%d] %s\n%s\n\n", i, d.Source, d.Content)
+	// }
 
 	prompt := buildPrompt(rewritten, docs, history)
 
@@ -189,6 +187,16 @@ func (s *Service) Stream(ctx context.Context, req Request) (<-chan string, error
 			}
 		}
 
+		if len(docs) > 0 {
+			citation := " [1]"
+			select {
+			case <-ctx.Done():
+				return
+			case out <- citation:
+			}
+			fullAnswer.WriteString(citation)
+		}
+
 		_ = s.memory.Save(ctx, req.SessionID, memory.Message{
 			Role:    "assistant",
 			Content: fullAnswer.String(),
@@ -206,7 +214,8 @@ func buildPrompt(query string, docs []Document, history []memory.Message) string
 	b.WriteString("When the user says 'she' or 'her', they are referring to Charmaine.\n")
 	b.WriteString("Use the retrieved context as your primary source of truth.\n")
 	b.WriteString("Do not ask the user to paste context. If context is weak, say what you can based on the available retrieved material and mention that the knowledge base may need more data.\n")
-	b.WriteString("Keep answers professional, specific, and recruiter-friendly.\n\n")
+	b.WriteString("Keep answers professional, specific, and recruiter-friendly.\n")
+	b.WriteString("When useful, answer directly first, then add one short supporting detail.\n\n")
 
 	if len(history) > 0 {
 		b.WriteString("Conversation history:\n")
@@ -244,4 +253,17 @@ func buildPrompt(query string, docs []Document, history []memory.Message) string
 	b.WriteString("\n\nAnswer as Charmaine Cat:\n")
 
 	return b.String()
+}
+
+func appendCitationHint(answer string, docs []Document) string {
+	answer = strings.TrimSpace(answer)
+	if answer == "" || len(docs) == 0 {
+		return answer
+	}
+
+	if strings.Contains(answer, "[1]") {
+		return answer
+	}
+
+	return answer + " [1]"
 }

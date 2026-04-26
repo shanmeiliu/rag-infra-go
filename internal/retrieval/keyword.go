@@ -3,15 +3,17 @@ package retrieval
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"strings"
 )
 
 type KeywordResult struct {
-	ChunkID string
-	DocID   string
-	Content string
-	Score   float64
+	ChunkID  string
+	DocID    string
+	Content  string
+	Metadata map[string]any
+	Score    float64
 }
 
 func KeywordSearch(ctx context.Context, db *sql.DB, query string, limit int, filters map[string]any) ([]KeywordResult, error) {
@@ -20,6 +22,7 @@ SELECT
 	chunk_id,
 	doc_id,
 	content,
+	metadata,
 	ts_rank_cd(tsv, plainto_tsquery('english', $1)) AS score
 FROM chunks
 `
@@ -81,9 +84,16 @@ FROM chunks
 	var results []KeywordResult
 	for rows.Next() {
 		var r KeywordResult
-		if err := rows.Scan(&r.ChunkID, &r.DocID, &r.Content, &r.Score); err != nil {
+		var metadataBytes []byte
+
+		if err := rows.Scan(&r.ChunkID, &r.DocID, &r.Content, &metadataBytes, &r.Score); err != nil {
 			return nil, err
 		}
+
+		if len(metadataBytes) > 0 {
+			_ = json.Unmarshal(metadataBytes, &r.Metadata)
+		}
+
 		results = append(results, r)
 	}
 
