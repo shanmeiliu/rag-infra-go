@@ -63,9 +63,10 @@ func (r *HybridRetriever) Retrieve(ctx context.Context, query string, embedding 
 		score := 1.0 / (1.0 + v.Score)
 		scoreMap[v.ChunkID] += r.alpha * score
 		docMap[v.ChunkID] = chat.Document{
-			ID:      v.ChunkID,
-			Content: v.Content,
-			Source:  v.DocID,
+			ID:       v.ChunkID,
+			Content:  v.Content,
+			Source:   v.DocID,
+			Metadata: v.Metadata,
 		}
 	}
 
@@ -73,9 +74,10 @@ func (r *HybridRetriever) Retrieve(ctx context.Context, query string, embedding 
 		scoreMap[k.ChunkID] += (1 - r.alpha) * k.Score
 		if _, exists := docMap[k.ChunkID]; !exists {
 			docMap[k.ChunkID] = chat.Document{
-				ID:      k.ChunkID,
-				Content: k.Content,
-				Source:  k.DocID,
+				ID:       k.ChunkID,
+				Content:  k.Content,
+				Source:   k.DocID,
+				Metadata: k.Metadata,
 			}
 		}
 	}
@@ -110,6 +112,11 @@ func (r *HybridRetriever) Retrieve(ctx context.Context, query string, embedding 
 		if err == nil && len(reranked) > 0 {
 			out := make([]chat.Document, 0, min(r.topK, len(reranked)))
 			for i := 0; i < len(reranked) && i < r.topK; i++ {
+				if original, ok := docMap[reranked[i].ID]; ok {
+					out = append(out, original)
+					continue
+				}
+
 				out = append(out, chat.Document{
 					ID:      reranked[i].ID,
 					Content: reranked[i].Content,
@@ -122,6 +129,11 @@ func (r *HybridRetriever) Retrieve(ctx context.Context, query string, embedding 
 
 	results := make([]chat.Document, 0, min(r.topK, len(candidates)))
 	for i := 0; i < len(candidates) && i < r.topK; i++ {
+		if original, ok := docMap[candidates[i].ID]; ok {
+			results = append(results, original)
+			continue
+		}
+
 		results = append(results, chat.Document{
 			ID:      candidates[i].ID,
 			Content: candidates[i].Content,
