@@ -21,10 +21,10 @@ type HybridRetriever struct {
 
 func NewHybridRetriever(store vectorstore.Store, db *sql.DB, topK int, alpha float64, rr reranker.Client, rerankTopK int) *HybridRetriever {
 	if topK <= 0 {
-		topK = 5
+		topK = 8
 	}
 	if alpha <= 0 || alpha >= 1 {
-		alpha = 0.7
+		alpha = 0.55
 	}
 	if rerankTopK <= 0 {
 		rerankTopK = topK
@@ -41,12 +41,17 @@ func NewHybridRetriever(store vectorstore.Store, db *sql.DB, topK int, alpha flo
 }
 
 func (r *HybridRetriever) Retrieve(ctx context.Context, query string, embedding []float32, filters map[string]any) ([]chat.Document, error) {
-	vecResults, err := r.vectorStore.Search(ctx, embedding, r.topK*2, filters)
+	candidateK := r.topK * 4
+	if candidateK < 20 {
+		candidateK = 20
+	}
+
+	vecResults, err := r.vectorStore.Search(ctx, embedding, candidateK, filters)
 	if err != nil {
 		return nil, err
 	}
 
-	kwResults, err := KeywordSearch(ctx, r.db, query, r.topK*2, filters)
+	kwResults, err := KeywordSearch(ctx, r.db, query, candidateK, filters)
 	if err != nil {
 		return nil, err
 	}
@@ -57,7 +62,6 @@ func (r *HybridRetriever) Retrieve(ctx context.Context, query string, embedding 
 	for _, v := range vecResults {
 		score := 1.0 / (1.0 + v.Score)
 		scoreMap[v.ChunkID] += r.alpha * score
-
 		docMap[v.ChunkID] = chat.Document{
 			ID:      v.ChunkID,
 			Content: v.Content,
@@ -67,7 +71,6 @@ func (r *HybridRetriever) Retrieve(ctx context.Context, query string, embedding 
 
 	for _, k := range kwResults {
 		scoreMap[k.ChunkID] += (1 - r.alpha) * k.Score
-
 		if _, exists := docMap[k.ChunkID]; !exists {
 			docMap[k.ChunkID] = chat.Document{
 				ID:      k.ChunkID,
@@ -91,8 +94,8 @@ func (r *HybridRetriever) Retrieve(ctx context.Context, query string, embedding 
 		return pairs[i].score > pairs[j].score
 	})
 
-	candidates := make([]reranker.Candidate, 0, min(len(pairs), r.topK*2))
-	for i := 0; i < len(pairs) && i < r.topK*2; i++ {
+	candidates := make([]reranker.Candidate, 0, min(len(pairs), candidateK))
+	for i := 0; i < len(pairs) && i < candidateK; i++ {
 		doc := docMap[pairs[i].id]
 		candidates = append(candidates, reranker.Candidate{
 			ID:      doc.ID,
