@@ -317,6 +317,299 @@ Inspired by modern enterprise RAG systems and production AI architectures.
 Give it a star ⭐ — it helps others discover the project.
 
 ---
+## 🚀 Production Deployment (Docker + Subdirectory Hosting)
+
+This section describes how to deploy the system in production using Docker Compose, including:
+
+- PostgreSQL + pgvector (persistent storage)
+- Go backend API
+- React frontend served via Nginx under a subpath (e.g. `/rag`)
+
+---
+
+### 🧱 Architecture
+
+Browser
+↓
+Frontend (Nginx)  →  /rag
+↓
+Backend API       →  /rag/api/*
+↓
+Postgres (pgvector)
+
+```
+
+- Frontend and backend are served under the same domain and subpath
+- Nginx proxies `/rag/api/*` → backend `/api/*`
+- No CORS issues in production (same-origin)
+
+---
+
+### 📁 Project Structure
+
+```
+
+deploy/
+docker-compose.yml
+.env
+
+rag-infra-go/
+Dockerfile
+
+interview-copilot-rag/
+interview-copilot-app/
+Dockerfile
+nginx.conf.template
+
+````
+
+---
+
+### ⚙️ Environment Configuration
+
+Create `deploy/.env`:
+
+```env
+# ============================================================
+# App
+# ============================================================
+APP_ENV=PROD
+APP_BASE_PATH=/rag
+
+FRONTEND_PORT=8000
+BACKEND_PORT=8080
+
+# ============================================================
+# Database
+# ============================================================
+POSTGRES_DB=rag_platform
+POSTGRES_USER=rag_user
+POSTGRES_PASSWORD=change_me
+POSTGRES_VOLUME_DIR=/srv/rag/postgres
+
+# ============================================================
+# Backend DB config
+# ============================================================
+DB_HOST=db
+DB_PORT=5432
+DB_USER=rag_user
+DB_PASSWORD=change_me
+DB_NAME=rag_platform
+DB_SSLMODE=disable
+
+# ============================================================
+# Auth
+# ============================================================
+ADMIN_USERNAME=admin
+ADMIN_PASSWORD=change_me
+ADMIN_EMAIL=you@example.com
+
+SESSION_COOKIE_NAME=interview_copilot_session
+SESSION_TTL_HOURS=24
+SECURE_COOKIES=true
+
+# ============================================================
+# Google OAuth
+# ============================================================
+GOOGLE_CLIENT_ID=
+GOOGLE_CLIENT_SECRET=
+
+GOOGLE_REDIRECT_URL=https://your-domain.com/rag/api/auth/google/callback
+FRONTEND_POST_LOGIN_URL=https://your-domain.com/rag/
+
+# ============================================================
+# CORS
+# ============================================================
+CORS_ALLOWED_ORIGINS=https://your-domain.com
+CORS_ALLOW_CREDENTIALS=true
+
+# ============================================================
+# LLM
+# ============================================================
+LLM_PROVIDER=openai
+OPENAI_API_KEY=
+OPENAI_BASE_URL=https://api.openai.com/v1
+OPENAI_CHAT_MODEL=gpt-4o-mini
+
+# ============================================================
+# Embeddings
+# ============================================================
+EMBEDDING_PROVIDER=local
+LOCAL_EMBEDDING_URL=
+LOCAL_EMBEDDING_API_KEY=
+LOCAL_EMBEDDING_MODEL=nomic-embed-text-v2-moe:latest
+LOCAL_EMBEDDING_DIM=0
+ENABLE_HNSW_INDEX=true
+
+# ============================================================
+# Reranker
+# ============================================================
+RERANKER_PROVIDER=none
+RERANKER_TOP_K=5
+
+# ============================================================
+# Frontend build
+# ============================================================
+VITE_APP_BASE_PATH=/rag
+VITE_API_BASE_PATH=/rag
+````
+
+---
+
+### 🐳 Docker Compose
+
+Create `deploy/docker-compose.yml`:
+
+```yaml
+services:
+  db:
+    image: pgvector/pgvector:0.8.2-pg18-trixie
+    container_name: rag-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    volumes:
+      - ${POSTGRES_VOLUME_DIR}:/var/lib/postgresql
+    ports:
+      - "5432:5432"
+
+  backend:
+    build:
+      context: ../rag-infra-go
+      dockerfile: Dockerfile
+    container_name: rag-backend
+    restart: unless-stopped
+    depends_on:
+      - db
+    environment:
+      APP_ENV: ${APP_ENV}
+      PORT: ${BACKEND_PORT}
+
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_USER: ${DB_USER}
+      DB_PASSWORD: ${DB_PASSWORD}
+      DB_NAME: ${DB_NAME}
+      DB_SSLMODE: ${DB_SSLMODE}
+
+      ADMIN_USERNAME: ${ADMIN_USERNAME}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD}
+      ADMIN_EMAIL: ${ADMIN_EMAIL}
+
+      SESSION_COOKIE_NAME: ${SESSION_COOKIE_NAME}
+      SESSION_TTL_HOURS: ${SESSION_TTL_HOURS}
+      SECURE_COOKIES: ${SECURE_COOKIES}
+
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
+      GOOGLE_REDIRECT_URL: ${GOOGLE_REDIRECT_URL}
+      FRONTEND_POST_LOGIN_URL: ${FRONTEND_POST_LOGIN_URL}
+
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS}
+      CORS_ALLOW_CREDENTIALS: ${CORS_ALLOW_CREDENTIALS}
+
+      OPENAI_API_KEY: ${OPENAI_API_KEY}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL}
+      OPENAI_CHAT_MODEL: ${OPENAI_CHAT_MODEL}
+
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER}
+      LOCAL_EMBEDDING_URL: ${LOCAL_EMBEDDING_URL}
+      LOCAL_EMBEDDING_API_KEY: ${LOCAL_EMBEDDING_API_KEY}
+      LOCAL_EMBEDDING_MODEL: ${LOCAL_EMBEDDING_MODEL}
+      LOCAL_EMBEDDING_DIM: ${LOCAL_EMBEDDING_DIM}
+      ENABLE_HNSW_INDEX: ${ENABLE_HNSW_INDEX}
+
+      RERANKER_PROVIDER: ${RERANKER_PROVIDER}
+      RERANKER_TOP_K: ${RERANKER_TOP_K}
+    ports:
+      - "${BACKEND_PORT}:8080"
+    volumes:
+      - /srv/rag/uploads:/app/uploads
+
+  frontend:
+    build:
+      context: ../interview-copilot-rag/interview-copilot-app
+      dockerfile: Dockerfile
+      args:
+        VITE_APP_BASE_PATH: ${VITE_APP_BASE_PATH}
+        VITE_API_BASE_PATH: ${VITE_API_BASE_PATH}
+    container_name: rag-frontend
+    restart: unless-stopped
+    depends_on:
+      - backend
+    environment:
+      APP_BASE_PATH: ${APP_BASE_PATH}
+      BACKEND_UPSTREAM: http://backend:8080
+    ports:
+      - "${FRONTEND_PORT}:80"
+```
+
+---
+
+### 🌐 Nginx Configuration (Frontend)
+
+`nginx.conf.template`:
+
+```nginx
+server {
+    listen 80;
+
+    location ${APP_BASE_PATH}/api/ {
+        proxy_pass ${BACKEND_UPSTREAM}/api/;
+        proxy_http_version 1.1;
+
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_buffering off;
+    }
+
+    location ${APP_BASE_PATH}/ {
+        root /usr/share/nginx/html;
+        try_files $uri $uri/ ${APP_BASE_PATH}/index.html;
+    }
+
+    location = ${APP_BASE_PATH} {
+        return 301 ${APP_BASE_PATH}/;
+    }
+}
+```
+
+---
+
+### ▶️ Run Deployment
+
+```bash
+cd deploy
+docker compose up -d --build
+```
+
+---
+
+### 🌍 Access
+
+```text
+http://your-server:8000/rag
+```
+
+API:
+
+```text
+http://your-server:8000/rag/api/healthz
+```
+
+---
+
+### 📝 Notes
+
+* Change `/rag` to any path via `APP_BASE_PATH`
+* Database persists via `POSTGRES_VOLUME_DIR`
+* Frontend and backend share same origin → no CORS issues
+* Google OAuth redirect must match the subpath (`/rag`)
+
+
+
 
 ## 👀 Author Notes
 
