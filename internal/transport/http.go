@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 
 	"github.com/shanmeiliu/rag-infra-go/internal/auth"
 	"github.com/shanmeiliu/rag-infra-go/internal/chat"
@@ -68,10 +69,12 @@ func (h *Handler) Routes() http.Handler {
 			sourcesHandler.Delete(w, r)
 			return
 		}
-		if r.Method == http.MethodPost && len(r.URL.Path) > len("/api/sources/") && r.URL.Path[len(r.URL.Path)-5:] == "/sync" {
+
+		if r.Method == http.MethodPost && strings.HasSuffix(r.URL.Path, "/sync") {
 			sourcesHandler.Sync(w, r)
 			return
 		}
+
 		http.NotFound(w, r)
 	}))))
 
@@ -128,7 +131,7 @@ func (h *Handler) chatStream(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	stream, err := h.chatSvc.Stream(r.Context(), req)
+	streamResult, err := h.chatSvc.StreamWithSources(r.Context(), req)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
@@ -138,7 +141,16 @@ func (h *Handler) chatStream(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 
-	for chunk := range stream {
+	sourcesEvent, _ := json.Marshal(map[string]any{
+		"type":            "sources",
+		"documents":       streamResult.Documents,
+		"mode":            streamResult.Mode,
+		"rewritten_query": streamResult.RewrittenQuery,
+	})
+	_, _ = fmt.Fprintf(w, "data: %s\n\n", sourcesEvent)
+	flusher.Flush()
+
+	for chunk := range streamResult.Tokens {
 		data, _ := json.Marshal(map[string]string{
 			"type":    "token",
 			"content": chunk,

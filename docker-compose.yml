@@ -1,0 +1,92 @@
+services:
+  db:
+    image: pgvector/pgvector:0.8.2-pg18-trixie
+    container_name: rag-infra-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${DB_NAME:-rag_platform}
+      POSTGRES_USER: ${DB_USER:-rag_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-rag_password}
+    ports:
+      - "${DB_PORT:-5432}:5432"
+    volumes:
+      # For pg18-trixie, mount /var/lib/postgresql, not /var/lib/postgresql/data.
+      # DEV example: POSTGRES_VOLUME_DIR=./docker-data/postgres
+      # PROD example: POSTGRES_VOLUME_DIR=/srv/rag-infra/postgres
+      - ${POSTGRES_VOLUME_DIR:-./docker-data/postgres}:/var/lib/postgresql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-rag_user} -d ${DB_NAME:-rag_platform}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: rag-infra-api
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    environment:
+      APP_ENV: ${APP_ENV:-DEV}
+      PORT: ${PORT:-8080}
+
+      # Inside Docker, DB_HOST must be the Compose service name.
+      DB_HOST: db
+      DB_PORT: 5432
+      DB_USER: ${DB_USER:-rag_user}
+      DB_PASSWORD: ${DB_PASSWORD:-rag_password}
+      DB_NAME: ${DB_NAME:-rag_platform}
+      DB_SSLMODE: ${DB_SSLMODE:-disable}
+
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-replace_me}
+
+      SESSION_COOKIE_NAME: ${SESSION_COOKIE_NAME:-interview_copilot_session}
+      SESSION_TTL_HOURS: ${SESSION_TTL_HOURS:-24}
+      SECURE_COOKIES: ${SECURE_COOKIES:-false}
+
+      LOCAL_RECRUITER_TTL_DAYS: ${LOCAL_RECRUITER_TTL_DAYS:-30}
+      GOOGLE_RECRUITER_TTL_DAYS: ${GOOGLE_RECRUITER_TTL_DAYS:-365}
+
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
+      GOOGLE_REDIRECT_URL: ${GOOGLE_REDIRECT_URL:-http://localhost:8080/api/auth/google/callback}
+      GOOGLE_ALLOWED_DOMAIN: ${GOOGLE_ALLOWED_DOMAIN:-}
+      FRONTEND_POST_LOGIN_URL: ${FRONTEND_POST_LOGIN_URL:-http://localhost:5173/}
+
+      CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS:-http://localhost:5173,http://127.0.0.1:5173}
+      CORS_ALLOW_CREDENTIALS: ${CORS_ALLOW_CREDENTIALS:-true}
+
+      LLM_PROVIDER: ${LLM_PROVIDER:-openai}
+      OPENAI_API_KEY: ${OPENAI_API_KEY:-}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      OPENAI_EMBEDDING_MODEL: ${OPENAI_EMBEDDING_MODEL:-text-embedding-3-small}
+      OPENAI_CHAT_MODEL: ${OPENAI_CHAT_MODEL:-gpt-4o-mini}
+
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-openai}
+      LOCAL_EMBEDDING_URL: ${LOCAL_EMBEDDING_URL:-}
+      LOCAL_EMBEDDING_API_KEY: ${LOCAL_EMBEDDING_API_KEY:-}
+      LOCAL_EMBEDDING_MODEL: ${LOCAL_EMBEDDING_MODEL:-}
+      LOCAL_EMBEDDING_DIM: ${LOCAL_EMBEDDING_DIM:-0}
+      ENABLE_HNSW_INDEX: ${ENABLE_HNSW_INDEX:-true}
+      DISABLE_EMBEDDING_PROBE: ${DISABLE_EMBEDDING_PROBE:-false}
+
+      HTTP_TIMEOUT_SECONDS: ${HTTP_TIMEOUT_SECONDS:-20}
+      HTTP_MAX_RETRIES: ${HTTP_MAX_RETRIES:-2}
+      HTTP_RETRY_BASE_DELAY_MS: ${HTTP_RETRY_BASE_DELAY_MS:-500}
+      HTTP_CIRCUIT_THRESHOLD: ${HTTP_CIRCUIT_THRESHOLD:-3}
+      HTTP_CIRCUIT_COOLDOWN_SECONDS: ${HTTP_CIRCUIT_COOLDOWN_SECONDS:-30}
+
+      RERANKER_PROVIDER: ${RERANKER_PROVIDER:-none}
+      RERANKER_MODEL: ${RERANKER_MODEL:-}
+      RERANKER_URL: ${RERANKER_URL:-}
+      RERANKER_API_KEY: ${RERANKER_API_KEY:-}
+      RERANKER_TOP_K: ${RERANKER_TOP_K:-5}
+    ports:
+      - "${PORT:-8080}:8080"
+    volumes:
+      - ${UPLOADS_VOLUME_DIR:-./docker-data/uploads}:/app/uploads
