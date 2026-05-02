@@ -126,16 +126,22 @@ func main() {
 
 	handler := transport.NewHTTPHandler(chatSvc, ingestionSvc, store, authCfg, authSvc, googleOAuth, sourcesSvc)
 
-	corsCfg := httpx.DefaultCORSConfig()
+	corsCfg := httpx.CORSConfigFromEnv()
 	router := httpx.CORSMiddleware(corsCfg)(handler.Routes())
 
+	port := os.Getenv("PORT")
+	if port == "" {
+		port = "8080"
+	}
+
+	log.Printf("app env: %s", os.Getenv("APP_ENV"))
 	log.Printf("embedding provider: %s", profile.Provider)
 	log.Printf("embedding model: %s", profile.Model)
 	log.Printf("embedding dimension: %d", profile.Dimension)
 	log.Printf("embedding table: %s", profile.TableName())
-	log.Println("server running on :8080")
+	log.Printf("server running on :%s", port)
 
-	if err := http.ListenAndServe(":8080", router); err != nil {
+	if err := http.ListenAndServe(":"+port, router); err != nil {
 		log.Fatalf("server failed: %v", err)
 	}
 }

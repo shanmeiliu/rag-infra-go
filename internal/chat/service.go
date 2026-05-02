@@ -61,6 +61,13 @@ type Response struct {
 	Mode           string         `json:"mode,omitempty"`
 }
 
+type StreamResult struct {
+	Mode           string
+	RewrittenQuery string
+	Documents      []Document
+	Tokens         <-chan string
+}
+
 func NewService(dep Dependencies) *Service {
 	return &Service{
 		rewriter:  dep.Rewriter,
@@ -129,6 +136,14 @@ func (s *Service) Ask(ctx context.Context, req Request) (*Response, error) {
 }
 
 func (s *Service) Stream(ctx context.Context, req Request) (<-chan string, error) {
+	result, err := s.StreamWithSources(ctx, req)
+	if err != nil {
+		return nil, err
+	}
+	return result.Tokens, nil
+}
+
+func (s *Service) StreamWithSources(ctx context.Context, req Request) (*StreamResult, error) {
 	if strings.TrimSpace(req.SessionID) == "" {
 		return nil, errors.New("session_id is required")
 	}
@@ -163,7 +178,6 @@ func (s *Service) Stream(ctx context.Context, req Request) (<-chan string, error
 	// for i, d := range docs {
 	//      fmt.Printf("[%d] %s\n%s\n\n", i, d.Source, d.Content)
 	// }
-
 	prompt := buildPrompt(mode, rewritten, docs, history)
 
 	rawStream, err := s.llm.Stream(ctx, prompt)
@@ -184,6 +198,10 @@ func (s *Service) Stream(ctx context.Context, req Request) (<-chan string, error
 		})
 
 		for token := range rawStream {
+			if token == "" {
+				continue
+			}
+
 			fullAnswer.WriteString(token)
 
 			select {
@@ -193,14 +211,30 @@ func (s *Service) Stream(ctx context.Context, req Request) (<-chan string, error
 			}
 		}
 
-		if len(docs) > 0 {
+		// Compatibility fallback:
+		// Some OpenAI-compatible providers may return an empty stream even when
+		// non-streaming generation works. In that case, fall back to Generate.
+		if strings.TrimSpace(fullAnswer.String()) == "" {
+			fallbackAnswer, err := s.llm.Generate(ctx, prompt)
+			if err == nil && strings.TrimSpace(fallbackAnswer) != "" {
+				fallbackAnswer = appendCitationHint(fallbackAnswer, docs)
+				fullAnswer.WriteString(fallbackAnswer)
+
+				select {
+				case <-ctx.Done():
+					return
+				case out <- fallbackAnswer:
+				}
+			}
+		} else if len(docs) > 0 && !strings.Contains(fullAnswer.String(), "[1]") {
 			citation := " [1]"
+			fullAnswer.WriteString(citation)
+
 			select {
 			case <-ctx.Done():
 				return
 			case out <- citation:
 			}
-			fullAnswer.WriteString(citation)
 		}
 
 		_ = s.memory.Save(ctx, req.SessionID, memory.Message{
@@ -209,7 +243,12 @@ func (s *Service) Stream(ctx context.Context, req Request) (<-chan string, error
 		})
 	}()
 
-	return out, nil
+	return &StreamResult{
+		Mode:           mode,
+		RewrittenQuery: rewritten,
+		Documents:      docs,
+		Tokens:         out,
+	}, nil
 }
 
 func extractMode(query string) (string, string) {

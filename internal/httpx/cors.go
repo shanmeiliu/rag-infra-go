@@ -2,6 +2,7 @@ package httpx
 
 import (
 	"net/http"
+	"os"
 	"strings"
 )
 
@@ -12,11 +13,23 @@ type CORSConfig struct {
 	AllowCredentials bool
 }
 
-func DefaultCORSConfig() CORSConfig {
+func CORSConfigFromEnv() CORSConfig {
+	originsRaw := strings.TrimSpace(os.Getenv("CORS_ALLOWED_ORIGINS"))
+	origins := splitCSV(originsRaw)
+
+	if len(origins) == 0 {
+		if strings.EqualFold(os.Getenv("APP_ENV"), "PROD") {
+			origins = []string{}
+		} else {
+			origins = []string{
+				"http://localhost:5173",
+				"http://127.0.0.1:5173",
+			}
+		}
+	}
+
 	return CORSConfig{
-		AllowedOrigins: []string{
-			"http://localhost:5173",
-		},
+		AllowedOrigins: origins,
 		AllowedMethods: []string{
 			http.MethodGet,
 			http.MethodPost,
@@ -29,8 +42,12 @@ func DefaultCORSConfig() CORSConfig {
 			"Content-Type",
 			"Authorization",
 		},
-		AllowCredentials: true,
+		AllowCredentials: getEnvBool("CORS_ALLOW_CREDENTIALS", true),
 	}
+}
+
+func DefaultCORSConfig() CORSConfig {
+	return CORSConfigFromEnv()
 }
 
 func CORSMiddleware(cfg CORSConfig) func(http.Handler) http.Handler {
@@ -45,6 +62,7 @@ func CORSMiddleware(cfg CORSConfig) func(http.Handler) http.Handler {
 	return func(next http.Handler) http.Handler {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			origin := r.Header.Get("Origin")
+
 			if origin != "" {
 				if _, ok := allowedOrigins[origin]; ok {
 					w.Header().Set("Access-Control-Allow-Origin", origin)
@@ -66,5 +84,39 @@ func CORSMiddleware(cfg CORSConfig) func(http.Handler) http.Handler {
 
 			next.ServeHTTP(w, r)
 		})
+	}
+}
+
+func splitCSV(raw string) []string {
+	if raw == "" {
+		return nil
+	}
+
+	parts := strings.Split(raw, ",")
+	out := make([]string, 0, len(parts))
+
+	for _, part := range parts {
+		part = strings.TrimSpace(part)
+		if part != "" {
+			out = append(out, part)
+		}
+	}
+
+	return out
+}
+
+func getEnvBool(key string, fallback bool) bool {
+	v := strings.TrimSpace(os.Getenv(key))
+	if v == "" {
+		return fallback
+	}
+
+	switch strings.ToLower(v) {
+	case "1", "true", "yes", "y":
+		return true
+	case "0", "false", "no", "n":
+		return false
+	default:
+		return fallback
 	}
 }
