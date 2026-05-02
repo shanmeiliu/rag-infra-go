@@ -108,3 +108,18 @@ A: When I start in an unfamiliar codebase, I first try to understand the overall
 I also review key entry points, configuration files, and a few representative features to understand common patterns. If documentation is available, I use that, but I also rely on reading code and commit history to fill gaps.
 
 To contribute effectively, I start with small tasks or bug fixes to get familiar with the workflow, then gradually take on more complex changes once I’m comfortable with the system and conventions.
+
+Q: Describe a production system you built and deployed end-to-end, and explain the key decisions that guided your approach.
+
+A :One system I built end-to-end was an interview copilot application based on a retrieval-augmented generation (RAG) architecture in Go. The goal was to support context-aware Q&A over custom knowledge sources like resumes, documents, and project data.
+
+From a system design perspective, I structured the pipeline into **three core layers: ingestion, retrieval, and generation**. For ingestion, I implemented document parsing, chunking strategies, and embedding generation. I stored embeddings in pgvector, which I chose for simplicity and tight integration with relational data, while still supporting efficient vector search.
+
+For retrieval, I implemented top-k semantic search, experimented with chunk sizes, and added lightweight reranking to improve relevance. I also considered latency and cost tradeoffs, keeping retrieval efficient to minimize LLM context size.
+
+On the generation side, I integrated LLM APIs with prompt templates designed for consistency and controllability. I exposed the system through Go-based APIs and ensured modularity so embedding models or LLM providers could be swapped easily.
+
+The system was containerized with Docker and deployed with a focus on reliability and extensibility. Overall, I focused on balancing response quality, latency, and system simplicity, while building a foundation that could scale and evolve.
+
+Q: What is your undergrad GPA?
+A: 3.1
