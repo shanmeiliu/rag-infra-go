@@ -329,41 +329,47 @@ This section describes how to deploy the system in production using Docker Compo
 
 ### 🧱 Architecture
 
-Browser
-↓
-Frontend (Nginx)  →  /rag
-↓
-Backend API       →  /rag/api/*
-↓
-Postgres (pgvector)
-
-```
 
 - Frontend and backend are served under the same domain and subpath
 - Nginx proxies `/rag/api/*` → backend `/api/*`
 - No CORS issues in production (same-origin)
-
----
-
-### 📁 Project Structure
+```
+browser
+  ↓
+frontend nginx container at /rag
+  ↓ 
+/rag/api/*
+backend container
+  ↓
+pgvector db container
 
 ```
+### 📁 Project Structure
+For actual server deployment, I’d use one top-level compose that includes:
 
+```
+db
+backend
+frontend/nginx
+
+```
+Best structure:
+```
 deploy/
-docker-compose.yml
-.env
+  docker-compose.yml
+  .env
 
 rag-infra-go/
-Dockerfile
+  Dockerfile
 
 interview-copilot-rag/
-interview-copilot-app/
-Dockerfile
-nginx.conf.template
+  interview-copilot-app/
+    Dockerfile
+    nginx.conf.template
 
-````
+```
+So frontend is not “separate” operationally — it is just built from the frontend repo and included in the top-level compose.
 
----
 
 ### ⚙️ Environment Configuration
 
