@@ -22,6 +22,7 @@ type Source struct {
 	CreatedByUserID *int64         `json:"created_by_user_id,omitempty"`
 	CreatedAt       time.Time      `json:"created_at"`
 	UpdatedAt       time.Time      `json:"updated_at"`
+	ChunkCount      int            `json:"chunk_count"`
 }
 
 type Repository struct {
@@ -143,6 +144,11 @@ LIMIT $1
 			_ = json.Unmarshal(metadataBytes, &s.Metadata)
 		}
 
+		stats, err := r.GetSourceStats(ctx, s.SourceKey)
+		if err == nil && stats != nil {
+			s.ChunkCount = stats.ChunkCount
+		}
+
 		out = append(out, s)
 	}
 
@@ -163,9 +169,11 @@ func (r *Repository) Delete(ctx context.Context, id int64) error {
 	if err != nil {
 		return err
 	}
+
 	affected, err := res.RowsAffected()
 	if err == nil && affected == 0 {
 		return ErrSourceNotFound
 	}
+
 	return err
 }
