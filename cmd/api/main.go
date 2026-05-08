@@ -9,6 +9,7 @@ import (
 	"github.com/joho/godotenv"
 
 	"github.com/shanmeiliu/rag-infra-go/internal/auth"
+	"github.com/shanmeiliu/rag-infra-go/internal/catprofile"
 	"github.com/shanmeiliu/rag-infra-go/internal/chat"
 	"github.com/shanmeiliu/rag-infra-go/internal/db"
 	"github.com/shanmeiliu/rag-infra-go/internal/httpx"
@@ -83,6 +84,9 @@ func main() {
 	if err := db.EnsureSourceSchema(ctx, postgresDB); err != nil {
 		log.Fatalf("failed to ensure source schema: %v", err)
 	}
+	if err := db.EnsureCatProfileSchema(ctx, postgresDB); err != nil {
+		log.Fatalf("failed to ensure cat profile schema: %v", err)
+	}
 	if err := db.EnsureEmbeddingTable(ctx, postgresDB, profile, providerCfg.EnableHNSWIndex); err != nil {
 		log.Fatalf("failed to ensure embedding table: %v", err)
 	}
@@ -115,7 +119,7 @@ func main() {
 
 	sourcesRepo := sources.NewRepository(postgresDB)
 	sourcesSvc := sources.NewService(sourcesRepo, ingestionSvc, store, "./uploads")
-
+	catProfileRepo := catprofile.NewRepository(postgresDB)
 	chatSvc := chat.NewService(chat.Dependencies{
 		Rewriter:  rewriter,
 		Retriever: retriever,
@@ -124,7 +128,7 @@ func main() {
 		Embedder:  embedder,
 	})
 
-	handler := transport.NewHTTPHandler(chatSvc, ingestionSvc, store, authCfg, authSvc, googleOAuth, sourcesSvc)
+	handler := transport.NewHTTPHandler(chatSvc, ingestionSvc, store, authCfg, authSvc, googleOAuth, sourcesSvc, catProfileRepo)
 
 	corsCfg := httpx.CORSConfigFromEnv()
 	router := httpx.CORSMiddleware(corsCfg)(handler.Routes())
