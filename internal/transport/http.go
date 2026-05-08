@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/shanmeiliu/rag-infra-go/internal/auth"
+	"github.com/shanmeiliu/rag-infra-go/internal/catprofile"
 	"github.com/shanmeiliu/rag-infra-go/internal/chat"
 	"github.com/shanmeiliu/rag-infra-go/internal/ingestion"
 	"github.com/shanmeiliu/rag-infra-go/internal/sources"
@@ -14,13 +15,14 @@ import (
 )
 
 type Handler struct {
-	chatSvc      *chat.Service
-	ingestionSvc *ingestion.Service
-	store        vectorstore.Store
-	authCfg      auth.Config
-	authSvc      *auth.Service
-	googleOAuth  *auth.GoogleOAuthClient
-	sourcesSvc   *sources.Service
+	chatSvc        *chat.Service
+	ingestionSvc   *ingestion.Service
+	store          vectorstore.Store
+	authCfg        auth.Config
+	authSvc        *auth.Service
+	googleOAuth    *auth.GoogleOAuthClient
+	sourcesSvc     *sources.Service
+	catProfileRepo *catprofile.Repository
 }
 
 func NewHTTPHandler(
@@ -31,15 +33,17 @@ func NewHTTPHandler(
 	authSvc *auth.Service,
 	googleOAuth *auth.GoogleOAuthClient,
 	sourcesSvc *sources.Service,
+	catProfileRepo *catprofile.Repository,
 ) *Handler {
 	return &Handler{
-		chatSvc:      chatSvc,
-		ingestionSvc: ingestionSvc,
-		store:        store,
-		authCfg:      authCfg,
-		authSvc:      authSvc,
-		googleOAuth:  googleOAuth,
-		sourcesSvc:   sourcesSvc,
+		chatSvc:        chatSvc,
+		ingestionSvc:   ingestionSvc,
+		store:          store,
+		authCfg:        authCfg,
+		authSvc:        authSvc,
+		googleOAuth:    googleOAuth,
+		sourcesSvc:     sourcesSvc,
+		catProfileRepo: catProfileRepo,
 	}
 }
 
@@ -49,8 +53,10 @@ func (h *Handler) Routes() http.Handler {
 	authHandler := NewAuthHandler(h.authCfg, h.authSvc, h.googleOAuth)
 	requireAuth := auth.AuthMiddleware(h.authCfg, h.authSvc)
 	sourcesHandler := NewSourcesHandler(h.sourcesSvc)
-
+	catProfileHandler := NewCatProfileHandler(h.catProfileRepo, "./uploads/cat-profile")
 	mux.HandleFunc("/healthz", h.health)
+	mux.HandleFunc("/api/cat-profile", catProfileHandler.PublicProfile)
+	mux.HandleFunc("/api/cat-profile/photos/", catProfileHandler.ServePhoto)
 
 	mux.HandleFunc("/api/auth/login", authHandler.Login)
 	mux.HandleFunc("/api/auth/signup", authHandler.Signup)
@@ -58,6 +64,12 @@ func (h *Handler) Routes() http.Handler {
 	mux.HandleFunc("/api/auth/google/callback", authHandler.GoogleCallback)
 	mux.Handle("/api/auth/me", requireAuth(http.HandlerFunc(authHandler.Me)))
 	mux.Handle("/api/auth/logout", requireAuth(http.HandlerFunc(authHandler.Logout)))
+
+	mux.Handle("/api/admin/cat-profile", requireAuth(auth.AdminOnly(http.HandlerFunc(catProfileHandler.AdminProfile))))
+	mux.Handle("/api/admin/cat-profile/stories", requireAuth(auth.AdminOnly(http.HandlerFunc(catProfileHandler.AdminStories))))
+	mux.Handle("/api/admin/cat-profile/stories/", requireAuth(auth.AdminOnly(http.HandlerFunc(catProfileHandler.AdminStoryByID))))
+	mux.Handle("/api/admin/cat-profile/photos", requireAuth(auth.AdminOnly(http.HandlerFunc(catProfileHandler.AdminPhotos))))
+	mux.Handle("/api/admin/cat-profile/photos/", requireAuth(auth.AdminOnly(http.HandlerFunc(catProfileHandler.AdminPhotoByID))))
 
 	mux.Handle("/api/admin/users", requireAuth(auth.AdminOnly(http.HandlerFunc(authHandler.ListUsers))))
 
