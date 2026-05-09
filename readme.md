@@ -363,7 +363,6 @@ rag-infra-go/
   Dockerfile
 
 interview-copilot-rag/
-  interview-copilot-app/
     Dockerfile
     nginx.conf.template
 
@@ -536,7 +535,7 @@ services:
 
   frontend:
     build:
-      context: ../interview-copilot-rag/interview-copilot-app
+      context: ../interview-copilot-rag
       dockerfile: Dockerfile
       args:
         VITE_APP_BASE_PATH: ${VITE_APP_BASE_PATH}
