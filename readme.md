@@ -469,86 +469,105 @@ Create `deploy/docker-compose.yml`:
 services:
   db:
     image: pgvector/pgvector:0.8.2-pg18-trixie
-    container_name: rag-db
+    container_name: ${COMPOSE_PROJECT_NAME:-rag}-db
     restart: unless-stopped
     environment:
-      POSTGRES_DB: ${POSTGRES_DB}
-      POSTGRES_USER: ${POSTGRES_USER}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${DB_NAME:-rag_platform}
+      POSTGRES_USER: ${DB_USER:-rag_user}
+      POSTGRES_PASSWORD: ${DB_PASSWORD}
     volumes:
-      - ${POSTGRES_VOLUME_DIR}:/var/lib/postgresql
+      - ${POSTGRES_VOLUME_DIR:-./docker-data/postgres}:/var/lib/postgresql
     ports:
-      - "5432:5432"
+      - "${DB_EXTERNAL_PORT:-5432}:5432"
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-rag_user} -d ${DB_NAME:-rag_platform}"]
+      interval: 10s
+      timeout: 5s
+      retries: 10
 
   backend:
     build:
       context: ../rag-infra-go
       dockerfile: Dockerfile
-    container_name: rag-backend
+      args:
+        APP_PORT: ${BACKEND_INTERNAL_PORT:-8080}
+    container_name: ${COMPOSE_PROJECT_NAME:-rag}-backend
     restart: unless-stopped
     depends_on:
-      - db
+      db:
+        condition: service_healthy
     environment:
-      APP_ENV: ${APP_ENV}
-      PORT: ${BACKEND_PORT}
+      APP_ENV: ${APP_ENV:-PROD}
+      PORT: ${BACKEND_INTERNAL_PORT:-8080}
 
       DB_HOST: db
       DB_PORT: 5432
-      DB_USER: ${DB_USER}
+      DB_USER: ${DB_USER:-rag_user}
       DB_PASSWORD: ${DB_PASSWORD}
-      DB_NAME: ${DB_NAME}
-      DB_SSLMODE: ${DB_SSLMODE}
+      DB_NAME: ${DB_NAME:-rag_platform}
+      DB_SSLMODE: ${DB_SSLMODE:-disable}
 
-      ADMIN_USERNAME: ${ADMIN_USERNAME}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD}
-      ADMIN_EMAIL: ${ADMIN_EMAIL}
 
-      SESSION_COOKIE_NAME: ${SESSION_COOKIE_NAME}
-      SESSION_TTL_HOURS: ${SESSION_TTL_HOURS}
-      SECURE_COOKIES: ${SECURE_COOKIES}
+      SESSION_COOKIE_NAME: ${SESSION_COOKIE_NAME:-interview_copilot_session}
+      SESSION_TTL_HOURS: ${SESSION_TTL_HOURS:-24}
+      SECURE_COOKIES: ${SECURE_COOKIES:-true}
 
-      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
-      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:-}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:-}
       GOOGLE_REDIRECT_URL: ${GOOGLE_REDIRECT_URL}
       FRONTEND_POST_LOGIN_URL: ${FRONTEND_POST_LOGIN_URL}
 
       CORS_ALLOWED_ORIGINS: ${CORS_ALLOWED_ORIGINS}
-      CORS_ALLOW_CREDENTIALS: ${CORS_ALLOW_CREDENTIALS}
+      CORS_ALLOW_CREDENTIALS: ${CORS_ALLOW_CREDENTIALS:-true}
 
+      LLM_PROVIDER: ${LLM_PROVIDER:-openai}
       OPENAI_API_KEY: ${OPENAI_API_KEY}
-      OPENAI_BASE_URL: ${OPENAI_BASE_URL}
-      OPENAI_CHAT_MODEL: ${OPENAI_CHAT_MODEL}
+      OPENAI_BASE_URL: ${OPENAI_BASE_URL:-https://api.openai.com/v1}
+      OPENAI_CHAT_MODEL: ${OPENAI_CHAT_MODEL:-gpt-4o-mini}
 
-      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER}
-      LOCAL_EMBEDDING_URL: ${LOCAL_EMBEDDING_URL}
-      LOCAL_EMBEDDING_API_KEY: ${LOCAL_EMBEDDING_API_KEY}
-      LOCAL_EMBEDDING_MODEL: ${LOCAL_EMBEDDING_MODEL}
-      LOCAL_EMBEDDING_DIM: ${LOCAL_EMBEDDING_DIM}
-      ENABLE_HNSW_INDEX: ${ENABLE_HNSW_INDEX}
+      EMBEDDING_PROVIDER: ${EMBEDDING_PROVIDER:-local}
+      OPENAI_EMBEDDING_MODEL: ${OPENAI_EMBEDDING_MODEL:-text-embedding-3-small}
+      LOCAL_EMBEDDING_URL: ${LOCAL_EMBEDDING_URL:-}
+      LOCAL_EMBEDDING_API_KEY: ${LOCAL_EMBEDDING_API_KEY:-}
+      LOCAL_EMBEDDING_MODEL: ${LOCAL_EMBEDDING_MODEL:-nomic-embed-text-v2-moe:latest}
+      LOCAL_EMBEDDING_DIM: ${LOCAL_EMBEDDING_DIM:-0}
+      DISABLE_EMBEDDING_PROBE: ${DISABLE_EMBEDDING_PROBE:-false}
+      ENABLE_HNSW_INDEX: ${ENABLE_HNSW_INDEX:-true}
 
-      RERANKER_PROVIDER: ${RERANKER_PROVIDER}
-      RERANKER_TOP_K: ${RERANKER_TOP_K}
+      RERANKER_PROVIDER: ${RERANKER_PROVIDER:-none}
+      RERANKER_MODEL: ${RERANKER_MODEL:-}
+      RERANKER_URL: ${RERANKER_URL:-}
+      RERANKER_API_KEY: ${RERANKER_API_KEY:-}
+      RERANKER_TOP_K: ${RERANKER_TOP_K:-5}
     ports:
-      - "${BACKEND_PORT}:8080"
+      - "${BACKEND_EXTERNAL_PORT:-8080}:${BACKEND_INTERNAL_PORT:-8080}"
     volumes:
-      - /srv/rag/uploads:/app/uploads
+      - ${UPLOADS_VOLUME_DIR:-./docker-data/uploads}:/app/uploads
 
   frontend:
     build:
-      context: ../interview-copilot-rag
+      context: ../interview-copilot-rag/interview-copilot-app
       dockerfile: Dockerfile
       args:
-        VITE_APP_BASE_PATH: ${VITE_APP_BASE_PATH}
-        VITE_API_BASE_PATH: ${VITE_API_BASE_PATH}
-    container_name: rag-frontend
+        VITE_APP_BASE_PATH: ${APP_BASE_PATH:-/rag}
+        VITE_API_BASE_PATH: ${VITE_API_BASE_PATH:-/rag}
+        FRONTEND_INTERNAL_PORT: ${FRONTEND_INTERNAL_PORT:-80}
+        BACKEND_UPSTREAM: ${BACKEND_UPSTREAM:-http://backend:8080}
+    container_name: ${COMPOSE_PROJECT_NAME:-rag}-frontend
     restart: unless-stopped
     depends_on:
       - backend
     environment:
-      APP_BASE_PATH: ${APP_BASE_PATH}
-      BACKEND_UPSTREAM: http://backend:8080
+      APP_BASE_PATH: ${APP_BASE_PATH:-/rag}
+      FRONTEND_INTERNAL_PORT: ${FRONTEND_INTERNAL_PORT:-80}
+      BACKEND_UPSTREAM: ${BACKEND_UPSTREAM:-http://backend:8080}
     ports:
-      - "${FRONTEND_PORT}:80"
+      - "${FRONTEND_EXTERNAL_PORT:-8000}:${FRONTEND_INTERNAL_PORT:-80}"
+
+
 ```
 
 ---
