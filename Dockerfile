@@ -21,6 +21,10 @@ COPY --from=builder /out/rag-api /app/rag-api
 
 RUN mkdir -p /app/uploads
 
-EXPOSE 8080
+
+ARG APP_PORT=8080
+ENV PORT=${APP_PORT}
+
+EXPOSE ${APP_PORT}
 
 CMD ["/app/rag-api"]
