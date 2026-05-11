@@ -18,16 +18,6 @@ func EnsureCatProfileSchema(ctx context.Context, db *sql.DB) error {
 			CONSTRAINT one_cat_profile CHECK (id = 1)
 		);`,
 
-		`CREATE TABLE IF NOT EXISTS cat_profile_stories (
-			id BIGSERIAL PRIMARY KEY,
-			title TEXT NOT NULL,
-			body TEXT NOT NULL,
-			sort_order INT NOT NULL DEFAULT 0,
-			is_published BOOLEAN NOT NULL DEFAULT TRUE,
-			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
-		);`,
-
 		`CREATE TABLE IF NOT EXISTS cat_profile_photos (
 			id BIGSERIAL PRIMARY KEY,
 			filename TEXT UNIQUE NOT NULL,
@@ -42,6 +32,20 @@ func EnsureCatProfileSchema(ctx context.Context, db *sql.DB) error {
 			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 		);`,
+
+		`CREATE TABLE IF NOT EXISTS cat_profile_stories (
+			id BIGSERIAL PRIMARY KEY,
+			title TEXT NOT NULL,
+			body TEXT NOT NULL,
+			photo_id BIGINT,
+			sort_order INT NOT NULL DEFAULT 0,
+			is_published BOOLEAN NOT NULL DEFAULT TRUE,
+			created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+			updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+		);`,
+
+		`ALTER TABLE cat_profile_stories
+			ADD COLUMN IF NOT EXISTS photo_id BIGINT;`,
 
 		`DO $$
 		BEGIN
@@ -58,6 +62,21 @@ func EnsureCatProfileSchema(ctx context.Context, db *sql.DB) error {
 			END IF;
 		END $$;`,
 
+		`DO $$
+		BEGIN
+			IF NOT EXISTS (
+				SELECT 1
+				FROM pg_constraint
+				WHERE conname = 'fk_cat_profile_story_photo'
+			) THEN
+				ALTER TABLE cat_profile_stories
+				ADD CONSTRAINT fk_cat_profile_story_photo
+				FOREIGN KEY (photo_id)
+				REFERENCES cat_profile_photos(id)
+				ON DELETE SET NULL;
+			END IF;
+		END $$;`,
+
 		`INSERT INTO cat_profile (id, display_name, tagline, bio)
 		 VALUES (
 			1,
@@ -69,6 +88,9 @@ func EnsureCatProfileSchema(ctx context.Context, db *sql.DB) error {
 
 		`CREATE INDEX IF NOT EXISTS idx_cat_profile_stories_sort_order
 			ON cat_profile_stories(sort_order, id);`,
+
+		`CREATE INDEX IF NOT EXISTS idx_cat_profile_stories_photo_id
+			ON cat_profile_stories(photo_id);`,
 
 		`CREATE INDEX IF NOT EXISTS idx_cat_profile_photos_sort_order
 			ON cat_profile_photos(sort_order, id);`,
