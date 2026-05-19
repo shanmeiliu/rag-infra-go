@@ -32,19 +32,21 @@ type Document struct {
 }
 
 type Dependencies struct {
-	Rewriter  Rewriter
-	Retriever Retriever
-	Memory    MemoryStore
-	LLM       llm.Client
-	Embedder  embedding.Client
+	Rewriter      Rewriter
+	Retriever     Retriever
+	Memory        MemoryStore
+	LLM           llm.Client
+	Embedder      embedding.Client
+	MissingLogger MissingQuestionLogger
 }
 
 type Service struct {
-	rewriter  Rewriter
-	retriever Retriever
-	memory    MemoryStore
-	llm       llm.Client
-	embedder  embedding.Client
+	rewriter      Rewriter
+	retriever     Retriever
+	memory        MemoryStore
+	llm           llm.Client
+	embedder      embedding.Client
+	MissingLogger MissingQuestionLogger
 }
 
 type Request struct {
@@ -61,6 +63,18 @@ type Response struct {
 	Mode           string         `json:"mode,omitempty"`
 }
 
+type MissingQuestionLogger interface {
+	LogMissingQuestion(
+		ctx context.Context,
+		sessionID string,
+		mode string,
+		question string,
+		rewrittenQuery string,
+		reason string,
+		filters map[string]any,
+	) error
+}
+
 type StreamResult struct {
 	Mode           string
 	RewrittenQuery string
@@ -70,11 +84,12 @@ type StreamResult struct {
 
 func NewService(dep Dependencies) *Service {
 	return &Service{
-		rewriter:  dep.Rewriter,
-		retriever: dep.Retriever,
-		memory:    dep.Memory,
-		llm:       dep.LLM,
-		embedder:  dep.Embedder,
+		rewriter:      dep.Rewriter,
+		retriever:     dep.Retriever,
+		memory:        dep.Memory,
+		llm:           dep.LLM,
+		MissingLogger: dep.MissingLogger,
+		embedder:      dep.Embedder,
 	}
 }
 

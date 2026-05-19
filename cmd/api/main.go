@@ -15,6 +15,7 @@ import (
 	"github.com/shanmeiliu/rag-infra-go/internal/httpx"
 	"github.com/shanmeiliu/rag-infra-go/internal/ingestion"
 	"github.com/shanmeiliu/rag-infra-go/internal/memory"
+	"github.com/shanmeiliu/rag-infra-go/internal/missingquestions"
 	"github.com/shanmeiliu/rag-infra-go/internal/providers"
 	"github.com/shanmeiliu/rag-infra-go/internal/rerank"
 	"github.com/shanmeiliu/rag-infra-go/internal/retrieval"
@@ -93,6 +94,9 @@ func main() {
 	if err := db.UpsertEmbeddingProfile(ctx, postgresDB, profile, true); err != nil {
 		log.Fatalf("failed to upsert embedding profile: %v", err)
 	}
+	if err := db.EnsureMissingQuestionsSchema(ctx, postgresDB); err != nil {
+		log.Fatalf("failed to ensure missing questions schema: %v", err)
+	}
 
 	authCfg := auth.ConfigFromEnv()
 	authRepo := auth.NewRepository(postgresDB)
@@ -116,19 +120,30 @@ func main() {
 	rewriter := rewrite.NewSimpleRewriter()
 	memStore := memory.NewInMemoryStore()
 	ingestionSvc := ingestion.NewService(embedder, store)
-
+	missingQuestionsRepo := missingquestions.NewRepository(postgresDB)
 	sourcesRepo := sources.NewRepository(postgresDB)
 	sourcesSvc := sources.NewService(sourcesRepo, ingestionSvc, store, "./uploads")
 	catProfileRepo := catprofile.NewRepository(postgresDB)
 	chatSvc := chat.NewService(chat.Dependencies{
-		Rewriter:  rewriter,
-		Retriever: retriever,
-		Memory:    memStore,
-		LLM:       llmClient,
-		Embedder:  embedder,
+		Rewriter:      rewriter,
+		Retriever:     retriever,
+		Memory:        memStore,
+		LLM:           llmClient,
+		Embedder:      embedder,
+		MissingLogger: missingQuestionsRepo,
 	})
 
-	handler := transport.NewHTTPHandler(chatSvc, ingestionSvc, store, authCfg, authSvc, googleOAuth, sourcesSvc, catProfileRepo)
+	handler := transport.NewHTTPHandler(
+		chatSvc,
+		ingestionSvc,
+		store,
+		authCfg,
+		authSvc,
+		googleOAuth,
+		sourcesSvc,
+		missingQuestionsRepo,
+		catProfileRepo,
+	)
 
 	corsCfg := httpx.CORSConfigFromEnv()
 	router := httpx.CORSMiddleware(corsCfg)(handler.Routes())

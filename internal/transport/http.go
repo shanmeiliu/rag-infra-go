@@ -10,19 +10,21 @@ import (
 	"github.com/shanmeiliu/rag-infra-go/internal/catprofile"
 	"github.com/shanmeiliu/rag-infra-go/internal/chat"
 	"github.com/shanmeiliu/rag-infra-go/internal/ingestion"
+	"github.com/shanmeiliu/rag-infra-go/internal/missingquestions"
 	"github.com/shanmeiliu/rag-infra-go/internal/sources"
 	"github.com/shanmeiliu/rag-infra-go/pkg/vectorstore"
 )
 
 type Handler struct {
-	chatSvc        *chat.Service
-	ingestionSvc   *ingestion.Service
-	store          vectorstore.Store
-	authCfg        auth.Config
-	authSvc        *auth.Service
-	googleOAuth    *auth.GoogleOAuthClient
-	sourcesSvc     *sources.Service
-	catProfileRepo *catprofile.Repository
+	chatSvc              *chat.Service
+	ingestionSvc         *ingestion.Service
+	store                vectorstore.Store
+	authCfg              auth.Config
+	authSvc              *auth.Service
+	googleOAuth          *auth.GoogleOAuthClient
+	sourcesSvc           *sources.Service
+	missingQuestionsRepo *missingquestions.Repository
+	catProfileRepo       *catprofile.Repository
 }
 
 func NewHTTPHandler(
@@ -33,17 +35,19 @@ func NewHTTPHandler(
 	authSvc *auth.Service,
 	googleOAuth *auth.GoogleOAuthClient,
 	sourcesSvc *sources.Service,
+	missingQuestionsRepo *missingquestions.Repository,
 	catProfileRepo *catprofile.Repository,
 ) *Handler {
 	return &Handler{
-		chatSvc:        chatSvc,
-		ingestionSvc:   ingestionSvc,
-		store:          store,
-		authCfg:        authCfg,
-		authSvc:        authSvc,
-		googleOAuth:    googleOAuth,
-		sourcesSvc:     sourcesSvc,
-		catProfileRepo: catProfileRepo,
+		chatSvc:              chatSvc,
+		ingestionSvc:         ingestionSvc,
+		store:                store,
+		authCfg:              authCfg,
+		authSvc:              authSvc,
+		googleOAuth:          googleOAuth,
+		sourcesSvc:           sourcesSvc,
+		missingQuestionsRepo: missingQuestionsRepo,
+		catProfileRepo:       catProfileRepo,
 	}
 }
 
@@ -53,6 +57,7 @@ func (h *Handler) Routes() http.Handler {
 	authHandler := NewAuthHandler(h.authCfg, h.authSvc, h.googleOAuth)
 	requireAuth := auth.AuthMiddleware(h.authCfg, h.authSvc)
 	sourcesHandler := NewSourcesHandler(h.sourcesSvc)
+	missingQuestionsHandler := NewMissingQuestionsHandler(h.missingQuestionsRepo)
 	catProfileHandler := NewCatProfileHandler(h.catProfileRepo, "./uploads/cat-profile")
 	mux.HandleFunc("/healthz", h.health)
 	mux.HandleFunc("/api/cat-profile", catProfileHandler.PublicProfile)
@@ -72,7 +77,25 @@ func (h *Handler) Routes() http.Handler {
 	mux.Handle("/api/admin/cat-profile/photos/", requireAuth(auth.AdminOnly(http.HandlerFunc(catProfileHandler.AdminPhotoByID))))
 
 	mux.Handle("/api/admin/users", requireAuth(auth.AdminOnly(http.HandlerFunc(authHandler.ListUsers))))
+	mux.Handle(
+		"/api/admin/missing-questions",
+		requireAuth(auth.AdminOnly(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method == http.MethodGet {
+				missingQuestionsHandler.List(w, r)
+				return
+			}
+			if r.Method == http.MethodDelete {
+				missingQuestionsHandler.Clear(w, r)
+				return
+			}
+			http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
+		}))),
+	)
 
+	mux.Handle(
+		"/api/admin/missing-questions/",
+		requireAuth(auth.AdminOnly(http.HandlerFunc(missingQuestionsHandler.DeleteByID))),
+	)
 	mux.Handle("/api/sources", requireAuth(auth.AdminOnly(http.HandlerFunc(sourcesHandler.List))))
 	mux.Handle("/api/sources/upload", requireAuth(auth.AdminOnly(http.HandlerFunc(sourcesHandler.Upload))))
 	mux.Handle("/api/sources/github", requireAuth(auth.AdminOnly(http.HandlerFunc(sourcesHandler.Github))))
