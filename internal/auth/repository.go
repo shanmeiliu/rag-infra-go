@@ -33,8 +33,10 @@ func (r *Repository) ListUsers(ctx context.Context, limit int) ([]User, error) {
 
 	rows, err := r.db.QueryContext(ctx, `
 SELECT
-	id, username, display_name, email, role, auth_provider, password_hash, google_sub,
-	status, created_at, updated_at, last_login_at, last_seen_at, expires_at, invited_by_user_id, notes
+	id, username, display_name, email, role, auth_provider, password_hash,
+	google_sub, status, created_at, updated_at, last_login_at, last_seen_at,
+	expires_at, invited_by_user_id, notes,
+	mfa_enabled, mfa_totp_secret, mfa_confirmed_at, mfa_email_enabled, mfa_email
 FROM users
 ORDER BY created_at DESC
 LIMIT $1
@@ -47,26 +49,11 @@ LIMIT $1
 	var users []User
 	for rows.Next() {
 		var u User
-		if err := rows.Scan(
-			&u.ID,
-			&u.Username,
-			&u.DisplayName,
-			&u.Email,
-			&u.Role,
-			&u.AuthProvider,
-			&u.PasswordHash,
-			&u.GoogleSub,
-			&u.Status,
-			&u.CreatedAt,
-			&u.UpdatedAt,
-			&u.LastLoginAt,
-			&u.LastSeenAt,
-			&u.ExpiresAt,
-			&u.InvitedByUserID,
-			&u.Notes,
-		); err != nil {
+
+		if err := scanUser(rows, &u); err != nil {
 			return nil, err
 		}
+
 		users = append(users, u)
 	}
 
@@ -76,8 +63,10 @@ LIMIT $1
 func (r *Repository) FindUserByUsername(ctx context.Context, username string) (*User, error) {
 	return r.findUser(ctx, `
 SELECT
-	id, username, display_name, email, role, auth_provider, password_hash, google_sub,
-	status, created_at, updated_at, last_login_at, last_seen_at, expires_at, invited_by_user_id, notes
+	id, username, display_name, email, role, auth_provider, password_hash,
+	google_sub, status, created_at, updated_at, last_login_at, last_seen_at,
+	expires_at, invited_by_user_id, notes,
+	mfa_enabled, mfa_totp_secret, mfa_confirmed_at, mfa_email_enabled, mfa_email
 FROM users
 WHERE username = $1
 LIMIT 1
@@ -87,8 +76,10 @@ LIMIT 1
 func (r *Repository) FindUserByID(ctx context.Context, id int64) (*User, error) {
 	return r.findUser(ctx, `
 SELECT
-	id, username, display_name, email, role, auth_provider, password_hash, google_sub,
-	status, created_at, updated_at, last_login_at, last_seen_at, expires_at, invited_by_user_id, notes
+	id, username, display_name, email, role, auth_provider, password_hash,
+	google_sub, status, created_at, updated_at, last_login_at, last_seen_at,
+	expires_at, invited_by_user_id, notes,
+	mfa_enabled, mfa_totp_secret, mfa_confirmed_at, mfa_email_enabled, mfa_email
 FROM users
 WHERE id = $1
 LIMIT 1
@@ -98,8 +89,10 @@ LIMIT 1
 func (r *Repository) FindUserByEmail(ctx context.Context, email string) (*User, error) {
 	return r.findUser(ctx, `
 SELECT
-	id, username, display_name, email, role, auth_provider, password_hash, google_sub,
-	status, created_at, updated_at, last_login_at, last_seen_at, expires_at, invited_by_user_id, notes
+	id, username, display_name, email, role, auth_provider, password_hash,
+	google_sub, status, created_at, updated_at, last_login_at, last_seen_at,
+	expires_at, invited_by_user_id, notes,
+	mfa_enabled, mfa_totp_secret, mfa_confirmed_at, mfa_email_enabled, mfa_email
 FROM users
 WHERE email = $1
 LIMIT 1
@@ -109,19 +102,22 @@ LIMIT 1
 func (r *Repository) FindUserByGoogleSub(ctx context.Context, sub string) (*User, error) {
 	return r.findUser(ctx, `
 SELECT
-	id, username, display_name, email, role, auth_provider, password_hash, google_sub,
-	status, created_at, updated_at, last_login_at, last_seen_at, expires_at, invited_by_user_id, notes
+	id, username, display_name, email, role, auth_provider, password_hash,
+	google_sub, status, created_at, updated_at, last_login_at, last_seen_at,
+	expires_at, invited_by_user_id, notes,
+	mfa_enabled, mfa_totp_secret, mfa_confirmed_at, mfa_email_enabled, mfa_email
 FROM users
 WHERE google_sub = $1
 LIMIT 1
 `, sub)
 }
 
-func (r *Repository) findUser(ctx context.Context, query string, arg any) (*User, error) {
-	row := r.db.QueryRowContext(ctx, query, arg)
+type userScanner interface {
+	Scan(dest ...any) error
+}
 
-	var u User
-	err := row.Scan(
+func scanUser(scanner userScanner, u *User) error {
+	return scanner.Scan(
 		&u.ID,
 		&u.Username,
 		&u.DisplayName,
@@ -138,8 +134,19 @@ func (r *Repository) findUser(ctx context.Context, query string, arg any) (*User
 		&u.ExpiresAt,
 		&u.InvitedByUserID,
 		&u.Notes,
+		&u.MFAEnabled,
+		&u.MFATOTPSecret,
+		&u.MFAConfirmedAt,
+		&u.MFAEmailEnabled,
+		&u.MFAEmail,
 	)
-	if err != nil {
+}
+
+func (r *Repository) findUser(ctx context.Context, query string, arg any) (*User, error) {
+	row := r.db.QueryRowContext(ctx, query, arg)
+
+	var u User
+	if err := scanUser(row, &u); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, ErrUserNotFound
 		}
@@ -279,6 +286,81 @@ UPDATE user_sessions
 SET revoked_at = $2
 WHERE session_token_hash = $1
 `, hashToken(rawToken), at)
+	return err
+}
+
+func (r *Repository) CreateMFAChallenge(ctx context.Context, userID int64, rawToken string, expiresAt time.Time) error {
+	_, err := r.db.ExecContext(ctx, `
+INSERT INTO mfa_challenges (
+	challenge_token_hash, user_id, expires_at
+)
+VALUES ($1, $2, $3)
+`, hashToken(rawToken), userID, expiresAt)
+	return err
+}
+
+func (r *Repository) FindMFAChallenge(ctx context.Context, rawToken string) (int64, error) {
+	row := r.db.QueryRowContext(ctx, `
+SELECT user_id
+FROM mfa_challenges
+WHERE challenge_token_hash = $1
+	AND consumed_at IS NULL
+	AND expires_at > NOW()
+LIMIT 1
+`, hashToken(rawToken))
+
+	var userID int64
+	if err := row.Scan(&userID); err != nil {
+		return 0, err
+	}
+
+	return userID, nil
+}
+
+func (r *Repository) ConsumeMFAChallenge(ctx context.Context, rawToken string) error {
+	_, err := r.db.ExecContext(ctx, `
+UPDATE mfa_challenges
+SET consumed_at = NOW()
+WHERE challenge_token_hash = $1
+`, hashToken(rawToken))
+	return err
+}
+
+func (r *Repository) SaveTOTPSecret(ctx context.Context, userID int64, secret string) error {
+	_, err := r.db.ExecContext(ctx, `
+UPDATE users
+SET
+	mfa_totp_secret = $2,
+	updated_at = NOW()
+WHERE id = $1
+`, userID, secret)
+	return err
+}
+
+func (r *Repository) EnableTOTP(ctx context.Context, userID int64) error {
+	_, err := r.db.ExecContext(ctx, `
+UPDATE users
+SET
+	mfa_enabled = TRUE,
+	mfa_confirmed_at = NOW(),
+	updated_at = NOW()
+WHERE id = $1
+`, userID)
+	return err
+}
+
+func (r *Repository) DisableMFA(ctx context.Context, userID int64) error {
+	_, err := r.db.ExecContext(ctx, `
+UPDATE users
+SET
+	mfa_enabled = FALSE,
+	mfa_totp_secret = NULL,
+	mfa_confirmed_at = NULL,
+	mfa_email_enabled = FALSE,
+	mfa_email = NULL,
+	updated_at = NOW()
+WHERE id = $1
+`, userID)
 	return err
 }
 

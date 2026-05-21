@@ -63,6 +63,12 @@ func (h *Handler) Routes() http.Handler {
 	mux.HandleFunc("/api/cat-profile", catProfileHandler.PublicProfile)
 	mux.HandleFunc("/api/cat-profile/photos/", catProfileHandler.ServePhoto)
 
+	mux.HandleFunc("/api/auth/mfa/verify", authHandler.MFAVerify)
+
+	mux.Handle("/api/admin/mfa/setup", requireAuth(auth.AdminOnly(http.HandlerFunc(authHandler.MFASetup))))
+	mux.Handle("/api/admin/mfa/confirm", requireAuth(auth.AdminOnly(http.HandlerFunc(authHandler.MFAConfirm))))
+	mux.Handle("/api/admin/mfa/disable", requireAuth(auth.AdminOnly(http.HandlerFunc(authHandler.MFADisable))))
+
 	mux.HandleFunc("/api/auth/login", authHandler.Login)
 	mux.HandleFunc("/api/auth/signup", authHandler.Signup)
 	mux.HandleFunc("/api/auth/google/start", authHandler.GoogleStart)

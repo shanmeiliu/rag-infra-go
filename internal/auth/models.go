@@ -19,6 +19,11 @@ type User struct {
 	ExpiresAt       *time.Time `json:"expires_at,omitempty"`
 	InvitedByUserID *int64     `json:"-"`
 	Notes           *string    `json:"notes,omitempty"`
+	MFAEnabled      bool       `json:"mfa_enabled"`
+	MFATOTPSecret   *string    `json:"-"`
+	MFAConfirmedAt  *time.Time `json:"mfa_confirmed_at,omitempty"`
+	MFAEmailEnabled bool       `json:"mfa_email_enabled"`
+	MFAEmail        *string    `json:"mfa_email,omitempty"`
 }
 
 type Session struct {

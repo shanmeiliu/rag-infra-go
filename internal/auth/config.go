@@ -21,6 +21,15 @@ type Config struct {
 	GoogleRedirectURL    string
 	GoogleAllowedDomain  string
 	FrontendPostLoginURL string
+
+	MFARequiredForAdmin   bool
+	MFAIssuer             string
+	MFAEmailBackupEnabled bool
+	SMTPHost              string
+	SMTPPort              int
+	SMTPUsername          string
+	SMTPPassword          string
+	SMTPFrom              string
 }
 
 func ConfigFromEnv() Config {
@@ -39,6 +48,15 @@ func ConfigFromEnv() Config {
 		GoogleRedirectURL:    getEnv("GOOGLE_REDIRECT_URL", "http://localhost:8080/api/auth/google/callback"),
 		GoogleAllowedDomain:  getEnv("GOOGLE_ALLOWED_DOMAIN", ""),
 		FrontendPostLoginURL: getEnv("FRONTEND_POST_LOGIN_URL", "http://localhost:5173/"),
+
+		MFARequiredForAdmin:   getEnvBool("MFA_REQUIRED_FOR_ADMIN", false),
+		MFAIssuer:             getEnv("MFA_ISSUER", "Interview Copilot"),
+		MFAEmailBackupEnabled: getEnvBool("MFA_EMAIL_BACKUP_ENABLED", false),
+		SMTPHost:              getEnv("SMTP_HOST", ""),
+		SMTPPort:              getEnvInt("SMTP_PORT", 587),
+		SMTPUsername:          getEnv("SMTP_USERNAME", ""),
+		SMTPPassword:          getEnv("SMTP_PASSWORD", ""),
+		SMTPFrom:              getEnv("SMTP_FROM", ""),
 	}
 }
 

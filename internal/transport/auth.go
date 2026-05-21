@@ -42,10 +42,98 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	ipAddress := r.RemoteAddr
 	userAgent := r.UserAgent()
 
-	user, sessionToken, err := h.svc.LoginWithPassword(
+	result, err := h.svc.LoginWithPasswordMFAAware(
 		r.Context(),
 		req.Username,
 		req.Password,
+		&ipAddress,
+		&userAgent,
+	)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusUnauthorized)
+		return
+	}
+
+	if result.MFARequired {
+		w.Header().Set("Content-Type", "application/json")
+		_ = json.NewEncoder(w).Encode(map[string]any{
+			"mfa_required": true,
+			"mfa_token":    result.MFAToken,
+			"user":         serializeUser(result.User),
+		})
+		return
+	}
+
+	h.setSessionCookie(w, result.SessionToken)
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"user": serializeUser(result.User),
+	})
+}
+
+func (h *AuthHandler) MFASetup(w http.ResponseWriter, r *http.Request) {
+	user, ok := auth.UserFromContext(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	secret, otpauthURL, err := h.svc.BeginTOTPSetup(r.Context(), user)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"secret":      secret,
+		"otpauth_url": otpauthURL,
+	})
+}
+
+func (h *AuthHandler) MFAConfirm(w http.ResponseWriter, r *http.Request) {
+	user, ok := auth.UserFromContext(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	var req struct {
+		Code string `json:"code"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	if err := h.svc.ConfirmTOTP(r.Context(), user, req.Code); err != nil {
+		http.Error(w, err.Error(), http.StatusUnauthorized)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (h *AuthHandler) MFAVerify(w http.ResponseWriter, r *http.Request) {
+	var req struct {
+		MFAToken string `json:"mfa_token"`
+		Code     string `json:"code"`
+	}
+
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		http.Error(w, "invalid request body", http.StatusBadRequest)
+		return
+	}
+
+	ipAddress := r.RemoteAddr
+	userAgent := r.UserAgent()
+
+	user, sessionToken, err := h.svc.VerifyMFATOTP(
+		r.Context(),
+		req.MFAToken,
+		req.Code,
 		&ipAddress,
 		&userAgent,
 	)
@@ -60,6 +148,21 @@ func (h *AuthHandler) Login(w http.ResponseWriter, r *http.Request) {
 	_ = json.NewEncoder(w).Encode(map[string]any{
 		"user": serializeUser(user),
 	})
+}
+
+func (h *AuthHandler) MFADisable(w http.ResponseWriter, r *http.Request) {
+	user, ok := auth.UserFromContext(r.Context())
+	if !ok {
+		http.Error(w, "unauthorized", http.StatusUnauthorized)
+		return
+	}
+
+	if err := h.svc.DisableMFA(r.Context(), user); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusNoContent)
 }
 
 func (h *AuthHandler) Signup(w http.ResponseWriter, r *http.Request) {
@@ -247,16 +350,20 @@ func (h *AuthHandler) setSessionCookie(w http.ResponseWriter, sessionToken strin
 
 func serializeUser(user *auth.User) map[string]any {
 	return map[string]any{
-		"id":            user.ID,
-		"username":      user.Username,
-		"display_name":  user.DisplayName,
-		"email":         user.Email,
-		"role":          user.Role,
-		"auth_provider": user.AuthProvider,
-		"status":        user.Status,
-		"created_at":    user.CreatedAt,
-		"last_login_at": user.LastLoginAt,
-		"last_seen_at":  user.LastSeenAt,
-		"expires_at":    user.ExpiresAt,
+		"id":                user.ID,
+		"username":          user.Username,
+		"display_name":      user.DisplayName,
+		"email":             user.Email,
+		"role":              user.Role,
+		"auth_provider":     user.AuthProvider,
+		"status":            user.Status,
+		"created_at":        user.CreatedAt,
+		"last_login_at":     user.LastLoginAt,
+		"last_seen_at":      user.LastSeenAt,
+		"expires_at":        user.ExpiresAt,
+		"mfa_enabled":       user.MFAEnabled,
+		"mfa_confirmed_at":  user.MFAConfirmedAt,
+		"mfa_email_enabled": user.MFAEmailEnabled,
+		"mfa_email":         user.MFAEmail,
 	}
 }
