@@ -7,6 +7,8 @@ import (
 	"errors"
 	"strings"
 	"time"
+
+	"github.com/pquerna/otp/totp"
 )
 
 var ErrInvalidCredentials = errors.New("invalid credentials")
@@ -18,6 +20,13 @@ var ErrPasswordTooShort = errors.New("password must be at least 8 characters")
 type Service struct {
 	cfg  Config
 	repo *Repository
+}
+
+type PasswordLoginResult struct {
+	User         *User
+	SessionToken string
+	MFARequired  bool
+	MFAToken     string
 }
 
 func NewService(cfg Config, repo *Repository) *Service {
@@ -297,4 +306,132 @@ func BuildRecruiterExpiry(days int) *time.Time {
 	}
 	t := time.Now().Add(time.Duration(days) * 24 * time.Hour)
 	return &t
+}
+
+func (s *Service) LoginWithPasswordMFAAware(
+	ctx context.Context,
+	username string,
+	password string,
+	ipAddress *string,
+	userAgent *string,
+) (*PasswordLoginResult, error) {
+	user, err := s.repo.FindUserByUsername(ctx, strings.TrimSpace(username))
+	if err != nil {
+		if errors.Is(err, ErrUserNotFound) {
+			return nil, ErrInvalidCredentials
+		}
+		return nil, err
+	}
+
+	if err := validateUserForLogin(user); err != nil {
+		return nil, err
+	}
+
+	if user.PasswordHash == nil || *user.PasswordHash == "" {
+		return nil, ErrInvalidCredentials
+	}
+
+	ok, err := CheckPassword(password, *user.PasswordHash)
+	if err != nil {
+		return nil, err
+	}
+	if !ok {
+		return nil, ErrInvalidCredentials
+	}
+
+	if s.cfg.MFARequiredForAdmin && user.Role == "admin" && user.MFAEnabled {
+		mfaToken, err := generateSessionToken()
+		if err != nil {
+			return nil, err
+		}
+
+		if err := s.repo.CreateMFAChallenge(ctx, user.ID, mfaToken, time.Now().Add(10*time.Minute)); err != nil {
+			return nil, err
+		}
+
+		return &PasswordLoginResult{
+			User:        user,
+			MFARequired: true,
+			MFAToken:    mfaToken,
+		}, nil
+	}
+
+	loggedInUser, sessionToken, err := s.createLoginSession(ctx, user, ipAddress, userAgent)
+	if err != nil {
+		return nil, err
+	}
+
+	return &PasswordLoginResult{
+		User:         loggedInUser,
+		SessionToken: sessionToken,
+	}, nil
+}
+
+func (s *Service) BeginTOTPSetup(ctx context.Context, user *User) (string, string, error) {
+	key, err := totp.Generate(totp.GenerateOpts{
+		Issuer:      s.cfg.MFAIssuer,
+		AccountName: user.Username,
+	})
+	if err != nil {
+		return "", "", err
+	}
+
+	if err := s.repo.SaveTOTPSecret(ctx, user.ID, key.Secret()); err != nil {
+		return "", "", err
+	}
+
+	return key.Secret(), key.URL(), nil
+}
+
+func (s *Service) ConfirmTOTP(ctx context.Context, user *User, code string) error {
+	freshUser, err := s.repo.FindUserByID(ctx, user.ID)
+	if err != nil {
+		return err
+	}
+
+	if freshUser.MFATOTPSecret == nil || *freshUser.MFATOTPSecret == "" {
+		return errors.New("totp secret is not configured")
+	}
+
+	if !totp.Validate(strings.TrimSpace(code), *freshUser.MFATOTPSecret) {
+		return ErrInvalidCredentials
+	}
+
+	return s.repo.EnableTOTP(ctx, freshUser.ID)
+}
+
+func (s *Service) VerifyMFATOTP(
+	ctx context.Context,
+	mfaToken string,
+	code string,
+	ipAddress *string,
+	userAgent *string,
+) (*User, string, error) {
+	userID, err := s.repo.FindMFAChallenge(ctx, mfaToken)
+	if err != nil {
+		return nil, "", ErrInvalidCredentials
+	}
+
+	user, err := s.repo.FindUserByID(ctx, userID)
+	if err != nil {
+		return nil, "", err
+	}
+
+	if user.MFATOTPSecret == nil || *user.MFATOTPSecret == "" {
+		return nil, "", ErrInvalidCredentials
+	}
+
+	if !totp.Validate(strings.TrimSpace(code), *user.MFATOTPSecret) {
+		return nil, "", ErrInvalidCredentials
+	}
+
+	if err := s.repo.ConsumeMFAChallenge(ctx, mfaToken); err != nil {
+		return nil, "", err
+	}
+
+	return s.createLoginSession(ctx, user, ipAddress, userAgent)
+}
+
+func (s *Service) DisableMFA(ctx context.Context, user *User) error {
+	return s.repo.DisableMFA(ctx, user.ID)
 }

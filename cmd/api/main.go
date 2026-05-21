@@ -82,6 +82,9 @@ func main() {
 	if err := db.EnsureAuthSchema(ctx, postgresDB); err != nil {
 		log.Fatalf("failed to ensure auth schema: %v", err)
 	}
+	if err := db.EnsureMFASchema(ctx, postgresDB); err != nil {
+		log.Fatalf("failed to ensure MFA schema: %v", err)
+	}
 	if err := db.EnsureSourceSchema(ctx, postgresDB); err != nil {
 		log.Fatalf("failed to ensure source schema: %v", err)
 	}
