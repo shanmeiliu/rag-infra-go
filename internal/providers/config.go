@@ -25,6 +25,11 @@ type ProviderConfig struct {
 	HTTPRetryBaseDelayMs   int
 	HTTPCircuitThreshold   int
 	HTTPCircuitCooldownSec int
+
+	LLMFallbackEnabled   bool
+	LLMFallbackBaseURL   string
+	LLMFallbackAPIKey    string
+	LLMFallbackChatModel string
 }
 
 func LoadProviderConfig() ProviderConfig {
@@ -47,6 +52,11 @@ func LoadProviderConfig() ProviderConfig {
 		HTTPRetryBaseDelayMs:   getEnvInt("HTTP_RETRY_BASE_DELAY_MS", 500),
 		HTTPCircuitThreshold:   getEnvInt("HTTP_CIRCUIT_THRESHOLD", 3),
 		HTTPCircuitCooldownSec: getEnvInt("HTTP_CIRCUIT_COOLDOWN_SECONDS", 30),
+
+		LLMFallbackEnabled:   getEnvBool("LLM_FALLBACK_ENABLED", false),
+		LLMFallbackBaseURL:   getEnv("LLM_FALLBACK_BASE_URL", ""),
+		LLMFallbackAPIKey:    getEnv("LLM_FALLBACK_API_KEY", ""),
+		LLMFallbackChatModel: getEnv("LLM_FALLBACK_CHAT_MODEL", ""),
 	}
 }
 
