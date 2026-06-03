@@ -110,7 +110,7 @@ func main() {
 		log.Fatalf("failed to ensure admin user: %v", err)
 	}
 
-	llmClient := providers.NewOpenAIClient()
+	llmClient := providers.NewLLMClient()
 	store := internalvector.NewPGVectorStore(postgresDB, profile)
 
 	rerankCfg := rerank.LoadConfig()

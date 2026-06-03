@@ -25,16 +25,101 @@ type OpenAIClient struct {
 
 func NewOpenAIClient() *OpenAIClient {
 	cfg := LoadProviderConfig()
-	httpCfg := cfg.HTTPSettings()
+	return NewOpenAIClientWithConfig(
+		os.Getenv("OPENAI_API_KEY"),
+		getEnv("OPENAI_BASE_URL", "https://api.openai.com/v1"),
+		getEnv("OPENAI_CHAT_MODEL", "gpt-4o-mini"),
+		cfg.HTTPSettings(),
+	)
+}
 
+func NewOpenAIClientWithConfig(apiKey, baseURL, model string, httpCfg HTTPSettings) *OpenAIClient {
 	return &OpenAIClient{
-		apiKey:  os.Getenv("OPENAI_API_KEY"),
-		baseURL: getEnv("OPENAI_BASE_URL", "https://api.openai.com/v1"),
-		model:   getEnv("OPENAI_CHAT_MODEL", "gpt-4o-mini"),
+		apiKey:  apiKey,
+		baseURL: strings.TrimRight(baseURL, "/"),
+		model:   model,
 		client:  &http.Client{Timeout: httpCfg.Timeout},
 		cb:      NewCircuitBreaker(httpCfg.CircuitThreshold, httpCfg.CircuitCooldown),
 		httpCfg: httpCfg,
 	}
+}
+
+func NewLLMClient() llm.Client {
+	cfg := LoadProviderConfig()
+	httpCfg := cfg.HTTPSettings()
+
+	primary := NewOpenAIClientWithConfig(
+		os.Getenv("OPENAI_API_KEY"),
+		getEnv("OPENAI_BASE_URL", "https://api.openai.com/v1"),
+		getEnv("OPENAI_CHAT_MODEL", "gpt-4o-mini"),
+		httpCfg,
+	)
+
+	if !cfg.LLMFallbackEnabled || cfg.LLMFallbackBaseURL == "" || cfg.LLMFallbackChatModel == "" {
+		return primary
+	}
+
+	fallback := NewOpenAIClientWithConfig(
+		cfg.LLMFallbackAPIKey,
+		cfg.LLMFallbackBaseURL,
+		cfg.LLMFallbackChatModel,
+		httpCfg,
+	)
+
+	return &FallbackLLMClient{
+		primary:  primary,
+		fallback: fallback,
+	}
+}
+
+type FallbackLLMClient struct {
+	primary  llm.Client
+	fallback llm.Client
+}
+
+func (c *FallbackLLMClient) Generate(ctx context.Context, prompt string) (string, error) {
+	out, err := c.primary.Generate(ctx, prompt)
+	if err == nil {
+		return out, nil
+	}
+
+	if !isFallbackableLLMError(err) {
+		return "", err
+	}
+
+	return c.fallback.Generate(ctx, prompt)
+}
+
+func (c *FallbackLLMClient) Stream(ctx context.Context, prompt string) (<-chan string, error) {
+	out, err := c.primary.Stream(ctx, prompt)
+	if err == nil {
+		return out, nil
+	}
+
+	if !isFallbackableLLMError(err) {
+		return nil, err
+	}
+
+	return c.fallback.Stream(ctx, prompt)
+}
+
+func isFallbackableLLMError(err error) bool {
+	if err == nil {
+		return false
+	}
+
+	msg := strings.ToLower(err.Error())
+
+	return strings.Contains(msg, "429") ||
+		strings.Contains(msg, "500") ||
+		strings.Contains(msg, "502") ||
+		strings.Contains(msg, "503") ||
+		strings.Contains(msg, "504") ||
+		strings.Contains(msg, "timeout") ||
+		strings.Contains(msg, "deadline exceeded") ||
+		strings.Contains(msg, "connection refused") ||
+		strings.Contains(msg, "connection reset") ||
+		strings.Contains(msg, "circuit breaker")
 }
 
 func (c *OpenAIClient) Generate(ctx context.Context, prompt string) (string, error) {
@@ -84,7 +169,10 @@ func (c *OpenAIClient) doGenerateRequest(ctx context.Context, data []byte) (stri
 	if err != nil {
 		return "", err
 	}
-	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+
+	if c.apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.client.Do(req)
@@ -143,7 +231,10 @@ func (c *OpenAIClient) Stream(ctx context.Context, prompt string) (<-chan string
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Authorization", "Bearer "+c.apiKey)
+
+	if c.apiKey != "" {
+		req.Header.Set("Authorization", "Bearer "+c.apiKey)
+	}
 	req.Header.Set("Content-Type", "application/json")
 
 	resp, err := c.client.Do(req)
@@ -223,3 +314,4 @@ func (c *OpenAIClient) Stream(ctx context.Context, prompt string) (<-chan string
 }
 
 var _ llm.Client = (*OpenAIClient)(nil)
+var _ llm.Client = (*FallbackLLMClient)(nil)
