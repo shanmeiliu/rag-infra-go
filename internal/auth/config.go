@@ -22,6 +22,8 @@ type Config struct {
 	GoogleAllowedDomain  string
 	FrontendPostLoginURL string
 
+	Screen2GPTInternalToken string
+
 	MFARequiredForAdmin   bool
 	MFAIssuer             string
 	MFAEmailBackupEnabled bool
@@ -48,6 +50,8 @@ func ConfigFromEnv() Config {
 		GoogleRedirectURL:    getEnv("GOOGLE_REDIRECT_URL", "http://localhost:8080/api/auth/google/callback"),
 		GoogleAllowedDomain:  getEnv("GOOGLE_ALLOWED_DOMAIN", ""),
 		FrontendPostLoginURL: getEnv("FRONTEND_POST_LOGIN_URL", "http://localhost:5173/"),
+
+		Screen2GPTInternalToken: getEnv("SCREEN2GPT_INTERNAL_TOKEN", ""),
 
 		MFARequiredForAdmin:   getEnvBool("MFA_REQUIRED_FOR_ADMIN", false),
 		MFAIssuer:             getEnv("MFA_ISSUER", "Interview Copilot"),

@@ -1,6 +1,7 @@
 package transport
 
 import (
+	"crypto/subtle"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -119,14 +120,45 @@ func (h *Handler) Routes() http.Handler {
 		http.NotFound(w, r)
 	}))))
 
-	mux.Handle("/api/chat", requireAuth(http.HandlerFunc(h.chat)))
+	mux.Handle("/api/chat", h.requireAuthOrServiceToken(http.HandlerFunc(h.chat)))
 	mux.Handle("/api/chat/stream", requireAuth(http.HandlerFunc(h.chatStream)))
 
 	mux.Handle("/api/ingest", requireAuth(auth.AdminOnly(http.HandlerFunc(h.ingest))))
 
 	return mux
 }
+func hasValidServiceToken(r *http.Request, expectedToken string) bool {
+	fmt.Println("expected token set:", expectedToken != "")
+	fmt.Println("auth header:", r.Header.Get("Authorization"))
+	if expectedToken == "" {
+		return false
+	}
 
+	authHeader := r.Header.Get("Authorization")
+	if !strings.HasPrefix(authHeader, "Bearer ") {
+		return false
+	}
+
+	token := strings.TrimSpace(strings.TrimPrefix(authHeader, "Bearer "))
+
+	return subtle.ConstantTimeCompare(
+		[]byte(token),
+		[]byte(expectedToken),
+	) == 1
+}
+
+func (h *Handler) requireAuthOrServiceToken(next http.Handler) http.Handler {
+	requireAuth := auth.AuthMiddleware(h.authCfg, h.authSvc)
+
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if hasValidServiceToken(r, h.authCfg.Screen2GPTInternalToken) {
+			next.ServeHTTP(w, r)
+			return
+		}
+
+		requireAuth(next).ServeHTTP(w, r)
+	})
+}
 func (h *Handler) health(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
