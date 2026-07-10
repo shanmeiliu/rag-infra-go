@@ -15,6 +15,11 @@ import (
 	"github.com/shanmeiliu/rag-infra-go/pkg/vectorstore"
 )
 
+type BuildInfo struct {
+	Version   string `json:"version"`
+	Commit    string `json:"commit"`
+	BuildTime string `json:"build_time"`
+}
 type Handler struct {
 	chatSvc              *chat.Service
 	ingestionSvc         *ingestion.Service
@@ -25,6 +30,7 @@ type Handler struct {
 	sourcesSvc           *sources.Service
 	missingQuestionsRepo *missingquestions.Repository
 	catProfileRepo       *catprofile.Repository
+	buildInfo            BuildInfo
 }
 
 func NewHTTPHandler(
@@ -37,6 +43,7 @@ func NewHTTPHandler(
 	sourcesSvc *sources.Service,
 	missingQuestionsRepo *missingquestions.Repository,
 	catProfileRepo *catprofile.Repository,
+	buildInfo BuildInfo,
 ) *Handler {
 	return &Handler{
 		chatSvc:              chatSvc,
@@ -48,6 +55,7 @@ func NewHTTPHandler(
 		sourcesSvc:           sourcesSvc,
 		missingQuestionsRepo: missingQuestionsRepo,
 		catProfileRepo:       catProfileRepo,
+		buildInfo:            buildInfo,
 	}
 }
 
@@ -59,6 +67,7 @@ func (h *Handler) Routes() http.Handler {
 	sourcesHandler := NewSourcesHandler(h.sourcesSvc)
 	missingQuestionsHandler := NewMissingQuestionsHandler(h.missingQuestionsRepo)
 	catProfileHandler := NewCatProfileHandler(h.catProfileRepo, "./uploads/cat-profile")
+	mux.HandleFunc("/version", h.version)
 	mux.HandleFunc("/healthz", h.health)
 	mux.HandleFunc("/api/cat-profile", catProfileHandler.PublicProfile)
 	mux.HandleFunc("/api/cat-profile/photos/", catProfileHandler.ServePhoto)
@@ -131,7 +140,10 @@ func (h *Handler) health(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", "application/json")
 	_ = json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
 }
-
+func (h *Handler) version(w http.ResponseWriter, r *http.Request) {
+	w.Header().Set("Content-Type", "application/json")
+	_ = json.NewEncoder(w).Encode(h.buildInfo)
+}
 func (h *Handler) chat(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)

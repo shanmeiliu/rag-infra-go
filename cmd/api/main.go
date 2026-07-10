@@ -25,6 +25,12 @@ import (
 	internalvector "github.com/shanmeiliu/rag-infra-go/internal/vectorstore"
 )
 
+var (
+	version   = "dev"
+	commit    = "unknown"
+	buildTime = "unknown"
+)
+
 func loadEnv() {
 	if envFile := os.Getenv("ENV_FILE"); envFile != "" {
 		if err := godotenv.Load(envFile); err == nil {
@@ -146,6 +152,11 @@ func main() {
 		sourcesSvc,
 		missingQuestionsRepo,
 		catProfileRepo,
+		transport.BuildInfo{
+			Version:   version,
+			Commit:    commit,
+			BuildTime: buildTime,
+		},
 	)
 
 	corsCfg := httpx.CORSConfigFromEnv()
